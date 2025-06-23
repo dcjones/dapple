@@ -15,8 +15,26 @@ class Resolvable(ABC):
     def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
         pass
 
+
+class Lengths(Resolvable):
+    def __add__(self, other: Lengths) -> Lengths:
+        return LengthsAddOp(self, other)
+
+    def __rmul__(self, other: float) -> Lengths:
+        return LengthsMulOp(other, self)
+
+    def __abs__(self) -> Lengths:
+        return LengthsAbsOp(self)
+
+    def min(self, other: Lengths) -> Lengths:
+        return LengthsMinOp(self, other)
+
+    def max(self, other: Lengths) -> Lengths:
+        return LengthsMaxOp(self, other)
+
+
 @dataclass
-class AbsLengths(Resolvable):
+class AbsLengths(Lengths):
     """
     Representation of lengths in millimeters.
     """
@@ -29,6 +47,9 @@ class AbsLengths(Resolvable):
         if len(self.values) != 1:
             raise ValueError(f"Scalar length expected but found {len(self.values)} lengths.")
 
+    def is_scalar(self) -> bool:
+        return len(self.values) == 1
+
     def scalar_value(self) -> float:
         self.assert_scalar()
         return float(self.values[0])
@@ -36,10 +57,14 @@ class AbsLengths(Resolvable):
     def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
         return self
 
-# TODO: Support operations
-#   - AbsLengths + AbsLengths
-#   - AbsLengths - AbsLengths
-#   - float * AbsLengths
+    def __repr__(self) -> str:
+        return f"AbsLengths({self.values})"
+
+    def __str__(self) -> str:
+        if self.is_scalar():
+            return f"{self.values[0]}mm"
+        else:
+            return f"{self.values}mm"
 
 # Constructing absolute lengths
 
@@ -77,12 +102,30 @@ class CtxUnit(Enum):
     CtxUnitW=3 # contextual viewport width units (in [0, 1])
     CtxUnitH=4 # contextual viewport height units (in [0, 1])
 
+def _ctx_unit_str(unit: CtxUnit) -> str:
+    match unit:
+        case CtxUnit.CtxUnitX:
+            return "cx"
+        case CtxUnit.CtxUnitY:
+            return "cy"
+        case CtxUnit.CtxUnitW:
+            return "cw"
+        case CtxUnit.CtxUnitH:
+            return "ch"
+
 class CtxLenType(Enum):
     CtxVec=1
     CtxPos=2
 
+def _ctx_len_type_str(typ: CtxLenType) -> str:
+    match typ:
+        case CtxLenType.CtxVec:
+            return "v"
+        case CtxLenType.CtxPos:
+            return ""
+
 @dataclass
-class CtxLengths(Resolvable):
+class CtxLengths(Lengths):
     """
     Representation of lengths in unresolved contrived coordinate system.
     """
@@ -93,6 +136,9 @@ class CtxLengths(Resolvable):
     def assert_scalar(self):
         if len(self.values) != 1:
             raise ValueError(f"Scalar length expected but found {len(self.values)} lengths.")
+
+    def is_scalar(self):
+        return len(self.values) == 1
 
     def scalar_value(self) -> float:
         self.assert_scalar()
@@ -108,6 +154,17 @@ class CtxLengths(Resolvable):
                 return AbsLengths(coord.scale * self.values)
             case CtxLenType.CtxPos:
                 return AbsLengths(coord.translate + coord.scale * self.values)
+
+    def __repr__(self) -> str:
+        return f"CtxLengths({self.values}, {self.unit}, {self.typ})"
+
+    def __str__(self) -> str:
+        unit_str = _ctx_unit_str(self.unit) + _ctx_len_type_str(self.typ)
+
+        if self.is_scalar():
+            return f"{self.values[0]}{unit_str}"
+        else:
+            return f"{self.values}{unit_str}"
 
 @singledispatch
 def ctxlengths(value, unit: CtxUnit, typ: CtxLenType) -> CtxLengths:
@@ -150,7 +207,7 @@ def chv(value) -> CtxLengths:
     return ctxlengths(value, CtxUnit.CtxUnitH, CtxLenType.CtxVec)
 
 @dataclass
-class LengthsAddOp(Resolvable):
+class LengthsAddOp(Lengths):
     a: Lengths
     b: Lengths
 
@@ -160,8 +217,14 @@ class LengthsAddOp(Resolvable):
         assert isinstance(a, AbsLengths) and isinstance(b, AbsLengths)
         return AbsLengths(a.values + b.values)
 
+    def __repr__(self) -> str:
+        return f"LengthsAddOp({self.a!r}, {self.b!r})"
+
+    def __str__(self) -> str:
+        return f"({self.a} + {self.b})"
+
 @dataclass
-class LengthsMulOp(Resolvable):
+class LengthsMulOp(Lengths):
     a: float
     b: Lengths
 
@@ -170,8 +233,29 @@ class LengthsMulOp(Resolvable):
         assert isinstance(b, AbsLengths)
         return AbsLengths(self.a * b.values)
 
+    def __repr__(self) -> str:
+        return f"LengthsMulOp({self.a!r}, {self.b!r})"
+
+    def __str__(self) -> str:
+        return f"({self.a} * {self.b})"
+
 @dataclass
-class LengthsMinOp(Resolvable):
+class LengthsAbsOp(Lengths):
+    a: Lengths
+
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
+        a = self.a.resolve(coords, occupancy)
+        assert isinstance(a, AbsLengths)
+        return AbsLengths(np.abs(a.values))
+
+    def __repr__(self) -> str:
+        return f"LengthsAbsOp({self.a!r})"
+
+    def __str__(self) -> str:
+        return f"abs({self.a})"
+
+@dataclass
+class LengthsMinOp(Lengths):
     a: Lengths
     b: Lengths
 
@@ -182,8 +266,14 @@ class LengthsMinOp(Resolvable):
 
         return AbsLengths(np.minimum(a.values, b.values))
 
+    def __repr__(self) -> str:
+        return f"LengthsMinOp({self.a!r})"
+
+    def __str__(self) -> str:
+        return f"({self.a}).min({self.b})"
+
 @dataclass
-class LengthsMaxOp(Resolvable):
+class LengthsMaxOp(Lengths):
     a: 'Lengths'
     b: 'Lengths'
 
@@ -194,15 +284,15 @@ class LengthsMaxOp(Resolvable):
 
         return AbsLengths(np.maximum(a.values, b.values))
 
-# TODO:
-#   - Can we support +, *, min, max?
-#   - Pretty printing these expressions
+    def __repr__(self) -> str:
+        return f"LengthsMaxOp({self.a!r})"
 
-LengthsExpr: TypeAlias = LengthsAddOp | LengthsMulOp | LengthsMinOp | LengthsMaxOp
-Lengths: TypeAlias = AbsLengths | CtxLengths | LengthsExpr
+    def __str__(self) -> str:
+        return f"({self.a}).max({self.b})"
+
 
 @dataclass
-class AbsCoordTransform(Resolvable):
+class AbsCoordTransform(Lengths):
     scale: float
     translate: float
 
@@ -212,7 +302,7 @@ class AbsCoordTransform(Resolvable):
 AbsCoordSet: TypeAlias = dict[CtxUnit, AbsCoordTransform]
 
 @dataclass
-class CtxCoordTransform(Resolvable):
+class CtxCoordTransform(Lengths):
     scale: Lengths
     translate: Lengths
 
@@ -224,10 +314,3 @@ class CtxCoordTransform(Resolvable):
         return AbsCoordTransform(abs_scale.scalar_value(), abs_translate.scalar_value())
 
 CoordSet: TypeAlias = dict[CtxUnit, AbsCoordTransform | CtxCoordTransform]
-
-# TODO: Representation of unscaled values
-# We should include a flag to say whether it is a position or a vector.
-# This should perhaps go in a separate scale.py file.
-
-class UnscaledValues:
-    pass
