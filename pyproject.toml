@@ -1,0 +1,21 @@
+[project]
+name = "dapple"
+version = "0.1.0"
+description = "Efficient and elegant plotting "
+authors = [
+    {name = "Daniel C. Jones"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "matplotlib (>=3.10.3,<4.0.0)",
+    "uharfbuzz (>=0.50.2,<0.51.0)",
+    "freetype-py (>=2.4.0,<3.0.0)",
+    "cmap (>=0.6.1,<0.7.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

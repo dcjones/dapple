@@ -7,6 +7,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from .colors import Colors
 from .coordinates import Lengths, CtxLengths, CtxUnit, CtxLenType
+from cmap import Color, Colormap, ColormapLike
 
 
 # Here I'm thinking unit can be anything. We need to handle, e.g.
@@ -66,32 +67,9 @@ class Scale(ABC):
     def scale(self, values: UnscaledValues) -> Lengths | Colors:
         pass
 
-    # TODO: Interface for getting labels?
-    # Mostly we won't need labels for every value.
-
-# TODO:
-# What is the interface for this??? In julia we can say
-#
-#  xdiscrete("f" => "foo", "b" => "bar"), which I really liked, but can't quite do here.
-#
-# I think we have two options:
-#   xdiscrete({"f": "foo", "b": "bar"})
-# or
-#   xdiscrete(["f", "b"])
-#
-# Dict is not ordered though, is it? Oh it is in modern python!
-#
-# What about specifying targets instead of just labels? We often want to do
-# that with colors, but it necessitates two maps.
-#
-# We need an interface to map values to labels and/or targets.
-#
-# colordiscrete({"f": RED, "b": "BLUE"})
-# colordiscrete({"f": ("foo", RED), "b": ("bar", BLUE)})
-#
-# I guess something like this, but it becomes ambiguous when only
-# one value is specified. (I guess we insist that labels are strs and colors are something...)
-#
+    @abstractmethod
+    def ticks(self) -> Tuple[NDArray[np.str_], Lengths | Colors]:
+        pass
 
 
 class ScaleDiscrete(Scale):
@@ -106,9 +84,6 @@ class ScaleDiscrete(Scale):
     # partial target list used while fitting the scale, maps
     # values to label target pairs.
     _targets: dict[Any, Tuple[str, Any]]
-
-    # TODO: Port over some extra features
-    #   - sorted ordering (maybe this can be a function parameter, like just pass order=sorted)
 
     def __init__(
             self, aesthetic: str, values: Mapping | Sequence | None = None,
@@ -168,14 +143,17 @@ class ScaleDiscreteLength(ScaleDiscrete):
         else:
             values = self._targets.keys()
 
-
         self.targets = np.zeros(len(self._targets), dtype=np.float32)
         self.map = dict()
         labels = []
-        next_target = max(self._targets) + 1
+
+        next_target = max(filter(
+            lambda target: target is not None,
+            map(lambda v: v[1], self._targets.values())),
+            default=0)
 
         for (i, value) in enumerate(values):
-            (label, target) = (self.labeler(value), value)
+            (label, target) = self._targets[value]
             self.map[value] = i
             labels.append(label)
             if target is None:
@@ -192,16 +170,90 @@ class ScaleDiscreteLength(ScaleDiscrete):
         return CtxLengths(self.targets[indices], self.unit, self.typ)
 
     # TODO: Maybe we have a unified tick_labels interface across scales
-    def tick_labels(self) -> Tuple[NDArray[np.str_], CtxLengths]:
+    def ticks(self) -> Tuple[NDArray[np.str_], CtxLengths]:
         return self.labels, CtxLengths(self.targets, self.unit, self.typ)
 
-class ScaleDiscreteColor(ScaleDiscrete):
-    # TODO: Should look pretty similar to ScaleDiscreteLength but we need some
-    # color scheme logic. Figure out if there is a good color scheme package for python first.
-    pass
 
+def xdiscrete(*args, **kwargs) -> ScaleDiscreteLength:
+    return ScaleDiscreteLength("x", CtxUnit.CtxUnitX, CtxLenType.CtxPos, *args, **kwargs)
+
+def ydiscrete(*args, **kwargs) -> ScaleDiscreteLength:
+    return ScaleDiscreteLength("y", CtxUnit.CtxUnitY, CtxLenType.CtxPos, *args, **kwargs)
+
+
+class ScaleDiscreteColor(ScaleDiscrete):
+    def __init__(
+            self, aesthetic: str, colormap: ColormapLike, values: Mapping | Sequence | None = None,
+            fixed: bool=False, labeler: Callable[[Any], str] = str, sort_by: None | Callable[[Any], Any] = lambda x: x):
+
+        self.colormap = Colormap(colormap)
+        super().__init__(aesthetic, values, fixed, labeler, sort_by)
+
+    def finalize(self):
+        if self.sort_by is not None:
+            values = sorted(self._targets.keys(), key=self.sort_by)
+        else:
+            values = self._targets.keys()
+
+        self.targets = np.zeros(len(self._targets), dtype=np.float32)
+        self.map = dict()
+        labels = []
+
+        next_target = max(filter(
+            lambda target: target is not None,
+            map(lambda v: v[1], self._targets.values())),
+            default=0)
+
+        for (i, value) in enumerate(values):
+            (label, target) = (self.labeler(value), value)
+            self.map[value] = i
+            labels.append(label)
+            if target is None:
+                self.targets[i] = next_target
+                next_target += 1
+            else:
+                assert target >= 0
+                self.targets[i] = target
+
+        # TODO: do we want this to always contain 0 and 1? Do the colormaps wrap around?
+        self.targets -= self.targets.min()
+        self.targets /= self.targets.max()
+        self.targets = self.colormap(self.targets)
+        self.labels = np.array(labels)
+
+    def scale(self, values: UnscaledValues) -> Lengths | Colors:
+        assert values.aesthetic == self.aesthetic
+        indices = np.array(self.map[value] for value in values.values)
+        return Colors(self.targets[indices,:])
+
+    def ticks(self) -> Tuple[NDArray[np.str_], Colors]:
+        return self.labels, Colors(self.targets)
+
+def colordiscrete(*args, **kwargs) -> ScaleDiscreteColor:
+    return ScaleDiscreteColor("color", *args, **kwargs)
+
+# TODO: We're going to have to implement tick optimization somewhere
+# Let's just port over our code from Dapple
 class ScaleContinuous(Scale):
     aesthetic: str
+    min: float
+    max: float
+
+    def __init__(self):
+        pass
+
+    def fit(self, values: UnscaledValues):
+        pass
+
+    def finalize(self):
+        pass
+
+    def scale(self, values: UnscaledValues) -> Lengths | Colors:
+        pass
+
+    def ticks(Self):
+        pass
+
     # TODO: This differs from discrete scale primarily in that it only really
     # keeps track of the minimum and maximum values.
     #
