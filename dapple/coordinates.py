@@ -38,10 +38,10 @@ class AbsLengths(Lengths):
     """
     Representation of lengths in millimeters.
     """
-    values: NDArray[np.float32]
+    values: NDArray[np.float64]
 
     def __init__(self, values: np.ndarray):
-        self.values = values.astype(np.float32)
+        self.values = values.astype(np.float64)
 
     def assert_scalar(self):
         if len(self.values) != 1:
@@ -74,15 +74,15 @@ def abslengths(value, scale=1.0) -> AbsLengths:
 
 @abslengths.register
 def _(value: float, scale=1.0) -> AbsLengths:
-    return AbsLengths(np.array([value * scale], dtype=np.float32))
+    return AbsLengths(np.array([value * scale], dtype=np.float64))
 
 @abslengths.register
 def _(value: list, scale=1.0) -> AbsLengths:
-    return AbsLengths(scale * np.asarray(value, dtype=np.float32))
+    return AbsLengths(scale * np.asarray(value, dtype=np.float64))
 
 @abslengths.register
 def _(value: np.ndarray, scale=1.0) -> AbsLengths:
-    return AbsLengths((scale * value).astype(np.float32))
+    return AbsLengths((scale * value).astype(np.float64))
 
 def mm(value):
     return abslengths(value)
@@ -96,32 +96,15 @@ def pt(value):
 def inch(value):
     return abslengths(value, scale=25.4)
 
-class CtxUnit(Enum):
-    CtxUnitX=1 # contextual x units
-    CtxUnitY=2 # contextual y units
-    CtxUnitW=3 # contextual viewport width units (in [0, 1])
-    CtxUnitH=4 # contextual viewport height units (in [0, 1])
-
-def _ctx_unit_str(unit: CtxUnit) -> str:
-    match unit:
-        case CtxUnit.CtxUnitX:
-            return "cx"
-        case CtxUnit.CtxUnitY:
-            return "cy"
-        case CtxUnit.CtxUnitW:
-            return "cw"
-        case CtxUnit.CtxUnitH:
-            return "ch"
-
 class CtxLenType(Enum):
-    CtxVec=1
-    CtxPos=2
+    Vec=1
+    Pos=2
 
 def _ctx_len_type_str(typ: CtxLenType) -> str:
     match typ:
-        case CtxLenType.CtxVec:
+        case CtxLenType.Vec:
             return "v"
-        case CtxLenType.CtxPos:
+        case CtxLenType.Pos:
             return ""
 
 @dataclass
@@ -129,8 +112,8 @@ class CtxLengths(Lengths):
     """
     Representation of lengths in unresolved contrived coordinate system.
     """
-    values: NDArray[np.float32]
-    unit: CtxUnit
+    values: NDArray[np.float64]
+    unit: str
     typ: CtxLenType
 
     def assert_scalar(self):
@@ -150,16 +133,16 @@ class CtxLengths(Lengths):
             raise ValueError(f"No coordinate for {self.unit}.")
 
         match self.typ:
-            case CtxLenType.CtxVec:
+            case CtxLenType.Vec:
                 return AbsLengths(coord.scale * self.values)
-            case CtxLenType.CtxPos:
+            case CtxLenType.Pos:
                 return AbsLengths(coord.translate + coord.scale * self.values)
 
     def __repr__(self) -> str:
         return f"CtxLengths({self.values}, {self.unit}, {self.typ})"
 
     def __str__(self) -> str:
-        unit_str = _ctx_unit_str(self.unit) + _ctx_len_type_str(self.typ)
+        unit_str = self.unit + _ctx_len_type_str(self.typ)
 
         if self.is_scalar():
             return f"{self.values[0]}{unit_str}"
@@ -167,44 +150,44 @@ class CtxLengths(Lengths):
             return f"{self.values}{unit_str}"
 
 @singledispatch
-def ctxlengths(value, unit: CtxUnit, typ: CtxLenType) -> CtxLengths:
+def ctxlengths(value, unit: str, typ: CtxLenType) -> CtxLengths:
     raise NotImplementedError(f"Type {type(value)} can't be converted to a contextual length.")
 
 @ctxlengths.register
-def _(value: float, unit: CtxUnit, typ: CtxLenType) -> CtxLengths:
-    return CtxLengths(np.array([value], dtype=np.float32), unit, typ)
+def _(value: float, unit: str, typ: CtxLenType) -> CtxLengths:
+    return CtxLengths(np.array([value], dtype=np.float64), unit, typ)
 
 @ctxlengths.register
-def _(value: list, unit: CtxUnit, typ: CtxLenType) -> CtxLengths:
-    return CtxLengths(np.asarray(value, dtype=np.float32), unit, typ)
+def _(value: list, unit: str, typ: CtxLenType) -> CtxLengths:
+    return CtxLengths(np.asarray(value, dtype=np.float64), unit, typ)
 
 @ctxlengths.register
-def _(value: np.ndarray, unit: CtxUnit, typ: CtxLenType) -> CtxLengths:
-    return CtxLengths(value.astype(np.float32), unit, typ)
+def _(value: np.ndarray, unit: str, typ: CtxLenType) -> CtxLengths:
+    return CtxLengths(value.astype(np.float64), unit, typ)
 
 def cx(value) -> CtxLengths:
-    return ctxlengths(value, CtxUnit.CtxUnitX, CtxLenType.CtxPos)
+    return ctxlengths(value, "x", CtxLenType.Pos)
 
 def cxv(value) -> CtxLengths:
-    return ctxlengths(value, CtxUnit.CtxUnitX, CtxLenType.CtxVec)
+    return ctxlengths(value, "x", CtxLenType.Vec)
 
 def cy(value) -> CtxLengths:
-    return ctxlengths(value, CtxUnit.CtxUnitY, CtxLenType.CtxPos)
+    return ctxlengths(value, "y", CtxLenType.Pos)
 
 def cyv(value) -> CtxLengths:
-    return ctxlengths(value, CtxUnit.CtxUnitY, CtxLenType.CtxVec)
+    return ctxlengths(value, "y", CtxLenType.Vec)
 
 def cw(value) -> CtxLengths:
-    return ctxlengths(value, CtxUnit.CtxUnitW, CtxLenType.CtxPos)
+    return ctxlengths(value, "w", CtxLenType.Pos)
 
 def cwv(value) -> CtxLengths:
-    return ctxlengths(value, CtxUnit.CtxUnitW, CtxLenType.CtxVec)
+    return ctxlengths(value, "w", CtxLenType.Vec)
 
 def ch(value) -> CtxLengths:
-    return ctxlengths(value, CtxUnit.CtxUnitH, CtxLenType.CtxPos)
+    return ctxlengths(value, "h", CtxLenType.Pos)
 
 def chv(value) -> CtxLengths:
-    return ctxlengths(value, CtxUnit.CtxUnitH, CtxLenType.CtxVec)
+    return ctxlengths(value, "h", CtxLenType.Vec)
 
 @dataclass
 class LengthsAddOp(Lengths):
@@ -290,7 +273,6 @@ class LengthsMaxOp(Lengths):
     def __str__(self) -> str:
         return f"({self.a}).max({self.b})"
 
-
 @dataclass
 class AbsCoordTransform(Lengths):
     scale: float
@@ -299,7 +281,7 @@ class AbsCoordTransform(Lengths):
     def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
         return self
 
-AbsCoordSet: TypeAlias = dict[CtxUnit, AbsCoordTransform]
+AbsCoordSet: TypeAlias = dict[str, AbsCoordTransform]
 
 @dataclass
 class CtxCoordTransform(Lengths):
@@ -313,4 +295,4 @@ class CtxCoordTransform(Lengths):
 
         return AbsCoordTransform(abs_scale.scalar_value(), abs_translate.scalar_value())
 
-CoordSet: TypeAlias = dict[CtxUnit, AbsCoordTransform | CtxCoordTransform]
+CoordSet: TypeAlias = dict[str, AbsCoordTransform | CtxCoordTransform]

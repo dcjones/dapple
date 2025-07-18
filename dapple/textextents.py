@@ -8,7 +8,7 @@ FreeType's precise glyph metrics.
 """
 
 from matplotlib import font_manager
-from .coordinates import AbsoluteLengths
+from .coordinates import AbsLengths
 from typing import Tuple
 import uharfbuzz as hb
 import freetype
@@ -34,7 +34,7 @@ class Font:
     ft_face: freetype.Face
     size_mm: float
 
-    def __init__(self, family: str, size: AbsoluteLengths):
+    def __init__(self, family: str, size: AbsLengths):
         """
         Initialize a Font object with the specified family and size.
 
@@ -77,7 +77,7 @@ class Font:
         except Exception as e:
             raise RuntimeError(f"Failed to load font '{family}' from '{self.font_path}': {e}")
 
-    def get_extents(self, text: str) -> Tuple[AbsoluteLengths, AbsoluteLengths]:
+    def get_extents(self, text: str) -> Tuple[AbsLengths, AbsLengths]:
         """
         Compute the bounding box for the given text.
 
@@ -100,7 +100,7 @@ class Font:
             - Complex scripts and ligatures are properly handled through HarfBuzz
         """
         if not text:
-            return AbsoluteLengths(0.0), AbsoluteLengths(0.0)
+            return AbsLengths(0.0), AbsLengths(0.0)
 
         try:
             # Create HarfBuzz buffer
@@ -116,7 +116,7 @@ class Font:
             glyph_positions = buf.glyph_positions
 
             if not glyph_infos:
-                return AbsoluteLengths(0.0), AbsoluteLengths(0.0)
+                return AbsLengths(0.0), AbsLengths(0.0)
         except Exception as e:
             raise RuntimeError(f"Failed to shape text '{text}': {e}")
 
@@ -186,4 +186,4 @@ class Font:
         width_mm = width_pts * MM_PER_PT
         height_mm = height_pts * MM_PER_PT
 
-        return AbsoluteLengths(width_mm), AbsoluteLengths(height_mm)
+        return AbsLengths(width_mm), AbsLengths(height_mm)

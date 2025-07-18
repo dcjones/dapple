@@ -10,7 +10,7 @@ from typing import Sequence
 # RGBA encoded colors stored in a [n, 4] array
 @dataclass
 class Colors:
-    values: NDArray[np.float32]
+    values: NDArray[np.float64]
 
 @singledispatch
 def color(value) -> Colors:
@@ -21,7 +21,7 @@ def color(value) -> Colors:
 @color.register
 def _(value: Sequence) -> Colors:
     n = len(value)
-    values = np.zeros((n, 4), dtype=np.float32)
+    values = np.zeros((n, 4), dtype=np.float64)
     for i, v in enumerate(value):
         rgba = Color(v).rgba
         values[i,:] = [rgba.r, rgba.g, rgba.b, rgba.a]
@@ -34,4 +34,4 @@ def _(value: str) -> Colors:
 @color.register
 def _(value: Color) -> Colors:
     rgba = value.rgba
-    return Colors(np.array([[rgba.r, rgba.g, rgba.b, rgba.a]], dtype=np.float32))
+    return Colors(np.array([[rgba.r, rgba.g, rgba.b, rgba.a]], dtype=np.float64))

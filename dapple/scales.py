@@ -1,70 +1,130 @@
 
+from __future__ import annotations
 
-from typing import Any, Mapping, Sequence, Tuple, Callable
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-import numpy as np
-from numpy.typing import ArrayLike, NDArray
 from .colors import Colors
-from .coordinates import Lengths, CtxLengths, CtxUnit, CtxLenType
-from cmap import Color, Colormap, ColormapLike
+from .coordinates import Lengths, CtxLengths, CtxLenType
+from abc import ABC, abstractmethod
+from cmap import Colormap, ColormapLike
+from collections import namedtuple
+from collections.abc import Iterable
+from dataclasses import dataclass
+from enum import Enum
+from numpy.typing import NDArray
+from typing import Any, Mapping, Sequence, Tuple, Callable, Optional, Union
+import numpy as np
+import operator
 
+class UnscaledExpr(ABC):
+    """
+    Unscaled expression generalized over unscaled values to support simple arthmetic
+    expressions, e.g. ux(["a", "b", "c"]) + mm(1.0).
 
-# Here I'm thinking unit can be anything. We need to handle, e.g.
-# point position and size as different aesthetics. Or stroke and fill.
-#
-# These need different names because we want to apply different scales.
-#
-# Questions:
-#   1. Do we need to keep track of positions vs vectors?
-#   2. Can we have a set a predefined aesthetics?
-#   3. How do we know what default scale to apply to aesthetics?
-#
-# We don't need pos vs vec as long as we have a solid system for default scales.
-#
-# I'd like to avoid using predefined aesthetics. I think it should be up to the geometry
-# to translate parameters into coherent aesthetics.
-#
-# Towards that end, I think we have an aesthetic name and it's associated "type"
-#
-# Like ("fill", "color"), ("stroke", "color")
-#
-# This way we let people write their own geometries without having to "register" default
-# scales.
-#
-# Alternatively, we could just have them register default scales somehow, right?
+    Implementing this interface requires propogating visits from the scale in
+    the fit and scale passes.
+    """
 
+    @abstractmethod
+    def accept_fit(self, scale: Scale):
+        pass
 
-_default_scales = {
-    # TOOD: once we've defined scales
-    # This is actually slightly tricky, because we need to guess continuous vs discrete
-    # based on the types we collect. So we may need a pair of scales for each of these.
-    "x": None,
-    "y": None,
-    "color": None,
-    "size": None,
-}
+    @abstractmethod
+    def accept_scale(self, scale: Scale) -> Lengths | Colors:
+        pass
+
+    def __add__(self, other):
+        return UnscaledBinaryOp(self, other, operator.add)
+
+    def __sub__(self, other):
+        return UnscaledBinaryOp(self, other, operator.sub)
+
+    def __neg__(self):
+        return UnscaledUnaryOp(self, operator.neg)
+
 
 @dataclass
-class UnscaledValues:
-    aesthetic: str
-    values: np.ndarray
+class UnscaledValues(UnscaledExpr):
+    """
+    Wraps data to be plotted along with necessary metadata. Specifically:
+      * unit: A name grouping values with a shared scale
+      * typ: Determines how the values with be scaled.
+    """
 
-    def __init__(self, aesthetic: str, values: ArrayLike):
-        self.aesthetic = aesthetic
-        self.values = np.array(values)
+    unit: str
+    values: Iterable
+    typ: CtxLenType=CtxLenType.Vec
+
+    def accept_fit(self, scale: Scale):
+        scale.fit_values(self)
+
+    def accept_scale(self, scale: Scale) -> Lengths | Colors:
+        return scale.scale_values(self)
+
+@dataclass
+class UnscaledUnaryOp(UnscaledExpr):
+    """
+    General purpose unary operations on unscaled value expressions.
+    """
+
+    a: Union[UnscaledExpr, Lengths]
+    op: Callable
+
+    def accept_fit(self, scale: Scale):
+        if isinstance(self.a, UnscaledExpr):
+            self.a.accept_fit(scale)
+
+    def accept_scale(self, scale: Scale) -> Lengths | Colors:
+        return self.op(
+            self.a.accept_scale(scale) if isinstance(self.a, UnscaledExpr) else self.a
+        )
+
+@dataclass
+class UnscaledBinaryOp(UnscaledExpr):
+    """
+    General purpose binary operations on unscaled value expressions.
+    """
+
+    a: Union[UnscaledExpr, Lengths]
+    b: Union[UnscaledExpr, Lengths]
+    op: Callable
+
+    def accept_fit(self, scale: Scale):
+        if isinstance(self.a, UnscaledExpr):
+            self.a.accept_fit(scale)
+        if isinstance(self.b, UnscaledExpr):
+            self.b.accept_fit(scale)
+
+    def accept_scale(self, scale: Scale) -> Lengths | Colors:
+        return self.op(
+            self.a.accept_scale(scale) if isinstance(self.a, UnscaledExpr) else self.a,
+            self.b.accept_scale(scale) if isinstance(self.b, UnscaledExpr) else self.b
+        )
 
 class Scale(ABC):
+    """
+    Scales take unscaled values and transform them into values in a plottable
+    unit, such as colors or lengths.
+
+    They also generate ticks to aide with drawing guides, and support a fitting
+    stage where they can first visit all the unscaled values before deciding how
+    to scale them.
+    """
+
+    def fit(self, expr: UnscaledExpr):
+        expr.accept_fit(self)
+
     @abstractmethod
-    def fit(self, values: UnscaledValues):
+    def fit_values(self, values: UnscaledValues):
         pass
 
     @abstractmethod
     def finalize(self):
         pass
 
+    def scale(self, expr: UnscaledExpr) -> Lengths | Colors:
+        return expr.accept_scale(self)
+
     @abstractmethod
-    def scale(self, values: UnscaledValues) -> Lengths | Colors:
+    def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
         pass
 
     @abstractmethod
@@ -73,7 +133,10 @@ class Scale(ABC):
 
 
 class ScaleDiscrete(Scale):
-    aesthetic: str
+    """
+    Disecrete scale which can map any collection of (hashable) values onto lengths or colors.
+    """
+    unit: str
     fixed: bool
     labeler: Callable[[Any], str]
     sort_by: None | Callable[[Any], Any]
@@ -86,9 +149,9 @@ class ScaleDiscrete(Scale):
     _targets: dict[Any, Tuple[str, Any]]
 
     def __init__(
-            self, aesthetic: str, values: Mapping | Sequence | None = None,
+            self, unit: str, values: Mapping | Sequence | None = None,
             fixed: bool=False, labeler: Callable[[Any], str] = str, sort_by: None | Callable[[Any], Any] = lambda x: x):
-        self.aesthetic = aesthetic
+        self.unit = unit
         self.fixed = fixed
         self.labeler = labeler
         self.sort_by = sort_by
@@ -117,7 +180,7 @@ class ScaleDiscrete(Scale):
         else:
             raise TypeError("values must be a Mapping or Sequence")
 
-    def fit(self, values: UnscaledValues):
+    def fit_values(self, values: UnscaledValues):
         for value in values.values:
             if value not in self._targets:
                 if self.fixed:
@@ -127,15 +190,15 @@ class ScaleDiscrete(Scale):
 
 
 class ScaleDiscreteLength(ScaleDiscrete):
-    unit: CtxUnit
-    typ: CtxLenType
+    """
+    Discrete length scale, which maps any collection of (hashable) values onto lengths.
+    """
 
     def __init__(
-            self, aesthetic: str, unit: CtxUnit, typ: CtxLenType, values: Mapping | Sequence | None = None,
+            self, unit: str, values: Mapping | Sequence | None = None,
             fixed: bool=False, labeler: Callable[[Any], str] = str, sort_by: None | Callable[[Any], Any] = lambda x: x):
         self.unit = unit
-        self.typ = typ
-        super().__init__(aesthetic, values, fixed, labeler, sort_by)
+        super().__init__(unit, values, fixed, labeler, sort_by)
 
     def finalize(self):
         if self.sort_by is not None:
@@ -164,30 +227,29 @@ class ScaleDiscreteLength(ScaleDiscrete):
 
         self.labels = np.array(labels)
 
-    def scale(self, values: UnscaledValues) -> Lengths | Colors:
-        assert values.aesthetic == self.aesthetic
+    def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
+        assert values.unit == self.unit
         indices = np.array(self.map[value] for value in values.values)
-        return CtxLengths(self.targets[indices], self.unit, self.typ)
+        return CtxLengths(self.targets[indices], values.unit, values.typ)
 
-    # TODO: Maybe we have a unified tick_labels interface across scales
     def ticks(self) -> Tuple[NDArray[np.str_], CtxLengths]:
-        return self.labels, CtxLengths(self.targets, self.unit, self.typ)
+        return self.labels, CtxLengths(self.targets, self.unit, CtxLenType.Pos)
 
 
 def xdiscrete(*args, **kwargs) -> ScaleDiscreteLength:
-    return ScaleDiscreteLength("x", CtxUnit.CtxUnitX, CtxLenType.CtxPos, *args, **kwargs)
+    return ScaleDiscreteLength("x", *args, **kwargs)
 
 def ydiscrete(*args, **kwargs) -> ScaleDiscreteLength:
-    return ScaleDiscreteLength("y", CtxUnit.CtxUnitY, CtxLenType.CtxPos, *args, **kwargs)
+    return ScaleDiscreteLength("y", *args, **kwargs)
 
 
 class ScaleDiscreteColor(ScaleDiscrete):
     def __init__(
-            self, aesthetic: str, colormap: ColormapLike, values: Mapping | Sequence | None = None,
+            self, unit: str, colormap: ColormapLike, values: Mapping | Sequence | None = None,
             fixed: bool=False, labeler: Callable[[Any], str] = str, sort_by: None | Callable[[Any], Any] = lambda x: x):
 
         self.colormap = Colormap(colormap)
-        super().__init__(aesthetic, values, fixed, labeler, sort_by)
+        super().__init__(unit, values, fixed, labeler, sort_by)
 
     def finalize(self):
         if self.sort_by is not None:
@@ -221,8 +283,7 @@ class ScaleDiscreteColor(ScaleDiscrete):
         self.targets = self.colormap(self.targets)
         self.labels = np.array(labels)
 
-    def scale(self, values: UnscaledValues) -> Lengths | Colors:
-        assert values.aesthetic == self.aesthetic
+    def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
         indices = np.array(self.map[value] for value in values.values)
         return Colors(self.targets[indices,:])
 
@@ -232,32 +293,252 @@ class ScaleDiscreteColor(ScaleDiscrete):
 def colordiscrete(*args, **kwargs) -> ScaleDiscreteColor:
     return ScaleDiscreteColor("color", *args, **kwargs)
 
-# TODO: We're going to have to implement tick optimization somewhere
-# Let's just port over our code from Dapple
+TickStep = namedtuple("TickStep", ["tick_step", "subtick_step", "niceness"])
+
+TICK_STEP_OPTIONS = [
+    TickStep(1.0, 0.5, 1.0), TickStep(5.0, 1.0, 0.9), TickStep(2.0, 1.0, 0.7), TickStep(2.5, 0.5, 0.5), TickStep(3.0, 1.0, 0.2)
+]
+
+@dataclass
+class ChooseTicksParams:
+    k_min: int
+    k_max: int
+    k_ideal: int
+    granularity_weight: float
+    simplicity_weight: float
+    coverage_weight: float
+    niceness_weight: float
+
+DEFAULT_CHOOSE_TICKS_PARAMS = ChooseTicksParams(
+    k_min=2,
+    k_max=10,
+    k_ideal=5,
+    granularity_weight=1/4,
+    simplicity_weight=1/6,
+    coverage_weight=1/2,
+    niceness_weight=1/4,
+)
+
+class TickCoverage(Enum):
+    Flexible=1
+    StrictSub=2
+    StrictSuper=3
+
+
+def _label_numbers(xs: np.ndarray) -> NDArray[np.str_]:
+    MAX_PRECISION = 5
+    fmt_str = f"{{:.{MAX_PRECISION}f}}"
+
+    xstrs = [fmt_str.format(x) for x in xs]
+    trim = min([len(xstr) - len(xstr.rstrip("0")) for xstr in xstrs])
+    if trim == MAX_PRECISION:
+        trim += 1
+
+    # TODO: fall back on scientific numbers?
+    # if trim === 0:
+    #     pass
+
+    return np.array([xstr[:-trim] for xstr in xstrs], dtype=str)
+
+# TODO:
+#  - Bijections (i.e. log scales)
+#  - Fixed tick spans
+
 class ScaleContinuous(Scale):
-    aesthetic: str
-    min: float
-    max: float
+    unit: str
+    min: Optional[np.float64]
+    max: Optional[np.float64]
+    tick_coverage: TickCoverage
+    choose_ticks_params: ChooseTicksParams
+    _ticks: Optional[np.ndarray]
+    _subticks: Optional[np.ndarray]
+    _tick_labels: Optional[np.ndarray]
+    _subtick_labels: Optional[np.ndarray]
 
-    def __init__(self):
-        pass
+    def __init__(self, unit: str, tick_coverage: TickCoverage, choose_tick_params: ChooseTicksParams = DEFAULT_CHOOSE_TICKS_PARAMS):
+        # TODO: We should be able to pass in min and max
+        # and also have a `fixed` argument like discrete scales.
 
-    def fit(self, values: UnscaledValues):
-        pass
+        self.unit = unit
+        self.min = None
+        self.max = None
+        self.tick_coverage = tick_coverage
+        self.choose_ticks_params = choose_tick_params
+        self._ticks = None
+        self._subticks = None
+        self._tick_labels = None
+        self._subtick_labels = None
+
+    def _cast_value(self, value: Any) -> np.float64:
+        try:
+            return np.float64(value)
+        except ValueError:
+            raise ValueError(f"Cannot use continuous scale for unit '{self.unit}' with non-numerical value: {value}")
+
+    def fit_values(self, values: UnscaledValues):
+        for value in values.values:
+            value = self._cast_value(value)
+            if self.min is None:
+                self.min = value
+            elif value < self.min:
+                self.min = value
+            if self.max is None:
+                self.max = value
+            elif value > self.max:
+                self.max = value
 
     def finalize(self):
+        # TODO: Do I actually need to do anything here?
         pass
 
-    def scale(self, values: UnscaledValues) -> Lengths | Colors:
-        pass
+    def ticks(self) -> Tuple[NDArray[np.str_], Lengths | Colors]:
+        if self._ticks is None or self._tick_labels is None:
+            self._ticks, self._subticks = self._choose_ticks()
+            self._tick_labels = _label_numbers(self._ticks)
+            self._subtick_labels = _label_numbers(self._subticks)
 
-    def ticks(Self):
-        pass
+        return (self._tick_labels, CtxLengths(self._ticks, self.unit, CtxLenType.Pos))
 
-    # TODO: This differs from discrete scale primarily in that it only really
-    # keeps track of the minimum and maximum values.
-    #
-    # I think we also have logic here for defining the ticks. In Dapple we are always
-    # saying `tick_coverage=:sub`. We need a way to replace that with something nice.
+    def _choose_ticks(self):
+        """
+        Continuous scale tick optimization via a version of Wilkinson's ad-hoc scoring method.
+        """
 
-    pass
+        if self.min is None or self.max is None:
+            raise ValueError(f"Cannot choose ticks for unit {self.unit} with no min or max")
+
+        scale_span = self.max - self.min
+
+        if scale_span == 0.0:
+            t0 = round(self.min - 1.0)
+            t1 = round(self.min + 1.0)
+            return np.array([t0, t1]), np.array([], dtype=float)
+
+        params = self.choose_ticks_params
+        CONSTRAINT_PENALTY = 10000.0
+        high_score = -np.inf
+
+        oom_best = 0.0
+        k_best = 0
+        t0_best = 0.0
+        step_best = 0.0
+        substep_best = 0.0
+
+        # Consider all orders of magnitude where we can span the range with k_max ticks
+        oom = np.ceil(np.log10(scale_span))
+        while params.k_max * 10.0**(oom+1) > scale_span:
+            # Consider numbers of ticks
+            for k in range(params.k_min, params.k_max+1):
+                # Consider steps
+                for step in TICK_STEP_OPTIONS:
+                    step_size = step.tick_step * 10.0**oom
+                    if step_size == 0.0:
+                        continue
+
+                    t0 = step_size * np.floor(self.min / step_size)
+
+                    # Consider tick starting places
+                    while t0 <= self.max:
+                        score = step.niceness * params.niceness_weight
+
+                        tk = t0 + (k-1)*step_size
+
+                        has_zero = t0 <= 0 and np.abs(t0/step_size) < k
+                        if not has_zero:
+                            score += params.simplicity_weight
+
+                        if 0 < k and k < 2*params.k_ideal:
+                            score += (1 - abs(k - params.k_ideal) / params.k_ideal) * params.granularity_weight
+
+                        coverage_jaccard = (min(self.max, tk) - max(self.min, t0)) / (max(self.max, tk) - min(self.min, t0))
+                        score += coverage_jaccard * params.coverage_weight
+
+                        # strict-ish limits on coverage
+                        if self.tick_coverage == TickCoverage.StrictSub and (t0 < self.min or tk > self.max):
+                            score -= CONSTRAINT_PENALTY
+                        elif self.tick_coverage == TickCoverage.StrictSuper and (t0 > self.min or tk < self.max):
+                            score -= CONSTRAINT_PENALTY
+
+                        if score > high_score:
+                            high_score = score
+                            oom_best = oom
+                            k_best = k
+                            t0_best = t0
+                            step_best = step.tick_step
+                            substep_best = step.subtick_step
+
+                        t0 += step_size
+
+            oom -= 1
+
+        if not np.isfinite(high_score):
+            t0 = round(self.min - 1.0)
+            t1 = round(self.min + 1.0)
+            return np.array([t0, t1]), np.array([], dtype=float)
+
+        # ticks
+        step_size = step_best * 10.0**oom_best
+        ticks = np.zeros(k_best, dtype=float)
+        for i in range(k_best):
+            ticks[i] = t0_best + i*step_size
+
+        # subticks
+        k_sub = int(round((k_best - 1) * step_best/substep_best))
+        step_size = substep_best * 10.0**oom_best
+        subticks = np.zeros(k_sub, dtype=float)
+        for i in range(k_sub):
+            subticks[i] = t0_best + i*step_size
+
+        return ticks, subticks
+
+class ScaleContinuousColor(ScaleContinuous):
+    def __init__(self, unit: str, colormap: ColormapLike, tick_coverage: TickCoverage, choose_tick_params: ChooseTicksParams = DEFAULT_CHOOSE_TICKS_PARAMS):
+        self.colormap = Colormap(colormap)
+        super().__init__(unit, tick_coverage, choose_tick_params)
+
+    def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
+        if self.min is None or self.max is None:
+            raise ValueError("ScaleContinuousColor requires min and max values")
+
+        span = self.max - self.min
+        scaled_values = self.colormap(np.fromiter(
+            ((self._cast_value(value) - self.min) / span for value in values.values),
+            dtype=np.float64
+        ))
+
+        return Colors(scaled_values)
+
+def colorcontinuous(*args, **kwargs) -> ScaleContinuousColor:
+    return ScaleContinuousColor(*args, **kwargs)
+
+
+class ScaleContinuousLength(ScaleContinuous):
+    def __init__(self, unit: str, tick_coverage: TickCoverage, choose_tick_params: ChooseTicksParams = DEFAULT_CHOOSE_TICKS_PARAMS):
+        super().__init__(unit, tick_coverage, choose_tick_params)
+
+    def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
+        assert values.unit == self.unit
+
+        scaled_values = np.fromiter(
+            (self._cast_value(value) for value in values.values),
+            dtype=np.float64
+        )
+
+        return CtxLengths(scaled_values, values.unit, values.typ)
+
+
+def xcontinuous(*args, **kwargs) -> ScaleContinuousLength:
+    return ScaleContinuousLength("x", *args, **kwargs)
+
+def ycontinuous(*args, **kwargs) -> ScaleContinuousLength:
+    return ScaleContinuousLength("y", *args, **kwargs)
+
+def sizecontinuous(*args, **kwargs) -> ScaleContinuousLength:
+    return ScaleContinuousLength("size", *args, **kwargs)
+
+_default_scales = {
+    "x": (xdiscrete, xcontinuous),
+    "y": (ydiscrete, ycontinuous),
+    "color": (colordiscrete, colorcontinuous),
+    "size": (None, sizecontinuous),
+}
