@@ -7,16 +7,28 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import singledispatch
 from numpy.typing import NDArray
-from typing import TypeAlias
+from typing import Any, TypeAlias
 import numpy as np
 
 class Resolvable(ABC):
     @abstractmethod
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Any:
         pass
+
+@singledispatch
+def resolve(value, coords: AbsCoordSet, occupancy: Occupancy) -> Any:
+    return value
+
+@resolve.register
+def _(arg: Resolvable, coords: AbsCoordSet, occupancy: Occupancy) -> Any:
+    return arg.resolve(coords, occupancy)
 
 
 class Lengths(Resolvable):
+    @abstractmethod
+    def __len__(self) -> int:
+        pass
+
     def __add__(self, other: Lengths) -> Lengths:
         return LengthsAddOp(self, other)
 
@@ -43,6 +55,9 @@ class AbsLengths(Lengths):
     def __init__(self, values: np.ndarray):
         self.values = values.astype(np.float64)
 
+    def __len__(self) -> int:
+        return len(self.values)
+
     def assert_scalar(self):
         if len(self.values) != 1:
             raise ValueError(f"Scalar length expected but found {len(self.values)} lengths.")
@@ -54,7 +69,7 @@ class AbsLengths(Lengths):
         self.assert_scalar()
         return float(self.values[0])
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
         return self
 
     def __repr__(self) -> str:
@@ -116,6 +131,9 @@ class CtxLengths(Lengths):
     unit: str
     typ: CtxLenType
 
+    def __len__(self) -> int:
+        return len(self.values)
+
     def assert_scalar(self):
         if len(self.values) != 1:
             raise ValueError(f"Scalar length expected but found {len(self.values)} lengths.")
@@ -127,7 +145,7 @@ class CtxLengths(Lengths):
         self.assert_scalar()
         return float(self.values[0])
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
         coord = coords.get(self.unit)
         if coord is None:
             raise ValueError(f"No coordinate for {self.unit}.")
@@ -194,7 +212,16 @@ class LengthsAddOp(Lengths):
     a: Lengths
     b: Lengths
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
+    def __init__(self, a: Lengths, b: Lengths):
+        if len(self.a) != len(self.b):
+            raise ValueError(f"Length mismatch: {len(self.a)} != {len(self.b)}")
+        self.a = a
+        self.b = b
+
+    def __len__(self) -> int:
+        return len(self.a)
+
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
         a = self.a.resolve(coords, occupancy)
         b = self.b.resolve(coords, occupancy)
         assert isinstance(a, AbsLengths) and isinstance(b, AbsLengths)
@@ -211,7 +238,10 @@ class LengthsMulOp(Lengths):
     a: float
     b: Lengths
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
+    def __len__(self) -> int:
+        return len(self.b)
+
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
         b = self.b.resolve(coords, occupancy)
         assert isinstance(b, AbsLengths)
         return AbsLengths(self.a * b.values)
@@ -226,7 +256,10 @@ class LengthsMulOp(Lengths):
 class LengthsAbsOp(Lengths):
     a: Lengths
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
+    def __len__(self) -> int:
+        return len(self.a)
+
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
         a = self.a.resolve(coords, occupancy)
         assert isinstance(a, AbsLengths)
         return AbsLengths(np.abs(a.values))
@@ -242,7 +275,16 @@ class LengthsMinOp(Lengths):
     a: Lengths
     b: Lengths
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
+    def __init__(self, a: Lengths, b: Lengths):
+        if len(self.a) != len(self.b):
+            raise ValueError(f"Length mismatch: {len(self.a)} != {len(self.b)}")
+        self.a = a
+        self.b = b
+
+    def __len__(self) -> int:
+        return len(self.a)
+
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
         a = self.a.resolve(coords, occupancy)
         b = self.b.resolve(coords, occupancy)
         assert isinstance(a, AbsLengths) and isinstance(b, AbsLengths)
@@ -257,10 +299,19 @@ class LengthsMinOp(Lengths):
 
 @dataclass
 class LengthsMaxOp(Lengths):
-    a: 'Lengths'
-    b: 'Lengths'
+    a: Lengths
+    b: Lengths
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
+    def __init__(self, a: Lengths, b: Lengths):
+        if len(self.a) != len(self.b):
+            raise ValueError(f"Length mismatch: {len(self.a)} != {len(self.b)}")
+        self.a = a
+        self.b = b
+
+    def __len__(self) -> int:
+        return len(self.a)
+
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
         a = self.a.resolve(coords, occupancy)
         b = self.b.resolve(coords, occupancy)
         assert isinstance(a, AbsLengths) and isinstance(b, AbsLengths)
@@ -273,22 +324,23 @@ class LengthsMaxOp(Lengths):
     def __str__(self) -> str:
         return f"({self.a}).max({self.b})"
 
+
 @dataclass
-class AbsCoordTransform(Lengths):
+class AbsCoordTransform(Resolvable):
     scale: float
     translate: float
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsCoordTransform:
         return self
 
 AbsCoordSet: TypeAlias = dict[str, AbsCoordTransform]
 
 @dataclass
-class CtxCoordTransform(Lengths):
+class CtxCoordTransform(Resolvable):
     scale: Lengths
     translate: Lengths
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Resolvable:
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsCoordTransform:
         abs_scale = self.scale.resolve(coords, occupancy)
         abs_translate = self.translate.resolve(coords, occupancy)
         assert isinstance(abs_scale, AbsLengths) and isinstance(abs_translate, AbsLengths)
