@@ -1,6 +1,6 @@
 
 from xml.etree.ElementTree import Element
-from .coordinates import Resolvable, AbsCoordSet, Lengths, Occupancy, resolve
+from .coordinates import CoordTransform, Resolvable, AbsCoordSet, Lengths, Occupancy, Transform, resolve, mm, translate
 from .colors import Colors
 from . import svg
 from typing import Collection
@@ -15,7 +15,7 @@ class ResolvableElement(Element, Resolvable):
     def __init__(self, tag: str, attrib={}, **extra):
         super().__init__(tag, attrib, **extra)
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Union[Lengths, Element]:
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Element:
         attrib = {k: resolve(v, coords, occupancy) for (k, v) in self.attrib.items()}
         el = Element(self.tag, attrib)
 
@@ -67,14 +67,27 @@ class VectorizedElement(ResolvableElement):
 
 class ContextElement(ResolvableElement):
     """
-    A special container element that sets up a coordinate transform.
+    A special container element used as a shortcut for defining the special `vw`
+    and `vh` units. The primary use case is to define a particular region using
+    a bounding box (though bounds are not anywhere enforced), and setting up
+    geometry relative to that bounding box using (vw, vh) units.
     """
 
-    def __init__():
-        pass
+    def __init__(self, x: Lengths, y: Lengths, width: Lengths, height: Lengths):
+        x.assert_scalar()
+        y.assert_scalar()
+        width.assert_scalar()
+        height.assert_scalar()
 
+        # The idea here is to push the translation part to an actual svg
+        # transform. That way everything gets translated the same way and we
+        # don't have to prefix everything with a 0vw + ..., 0vh + ...
+        attribs = {
+            "dapple:coords": {
+                "vw": CoordTransform(width, mm(0)),
+                "vh": CoordTransform(height, mm(0)),
+            },
+            "transform": translate(x, y)
+        }
 
-
-
-
-# TODO: ctx tags
+        super().__init__("g", attribs)

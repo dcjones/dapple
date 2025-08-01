@@ -29,6 +29,13 @@ class Lengths(Resolvable):
     def __len__(self) -> int:
         pass
 
+    def assert_scalar(self):
+        if not self.isscalar():
+            raise ValueError(f"Scalar length expected but found {len(self)} lengths.")
+
+    def isscalar(self) -> bool:
+        return len(self) == 1
+
     def __add__(self, other: Lengths) -> Lengths:
         return LengthsAddOp(self, other)
 
@@ -58,13 +65,6 @@ class AbsLengths(Lengths):
     def __len__(self) -> int:
         return len(self.values)
 
-    def assert_scalar(self):
-        if len(self.values) != 1:
-            raise ValueError(f"Scalar length expected but found {len(self.values)} lengths.")
-
-    def is_scalar(self) -> bool:
-        return len(self.values) == 1
-
     def scalar_value(self) -> float:
         self.assert_scalar()
         return float(self.values[0])
@@ -76,7 +76,7 @@ class AbsLengths(Lengths):
         return f"AbsLengths({self.values})"
 
     def __str__(self) -> str:
-        if self.is_scalar():
+        if self.isscalar():
             return f"{self.values[0]}mm"
         else:
             return f"{self.values}mm"
@@ -336,7 +336,7 @@ class AbsCoordTransform(Resolvable):
 AbsCoordSet: TypeAlias = dict[str, AbsCoordTransform]
 
 @dataclass
-class CtxCoordTransform(Resolvable):
+class CoordTransform(Resolvable):
     scale: Lengths
     translate: Lengths
 
@@ -347,4 +347,67 @@ class CtxCoordTransform(Resolvable):
 
         return AbsCoordTransform(abs_scale.scalar_value(), abs_translate.scalar_value())
 
-CoordSet: TypeAlias = dict[str, AbsCoordTransform | CtxCoordTransform]
+CoordSet: TypeAlias = dict[str, AbsCoordTransform | CoordTransform]
+
+
+@dataclass
+class AbsTransform:
+    """
+    Transformation matrix applied to absolute lengths.
+
+    Coordinates (x, y) are transformed like
+
+      [ a c xt ]   [ x ]
+      [ b d yt ] * [ y ]
+      [ 0 0 1  ]   [ 1 ]
+
+    """
+    a: float
+    b: float
+    c: float
+    d: float
+    tx: float
+    ty: float
+
+    def isidentity(self) -> bool:
+        return self.a == 1 and self.b == 0 and self.c == 0 and self.d == 1 and self.tx == 0 and self.ty == 0
+
+    def __str__(self) -> str:
+        # only translation
+        if self.a == 1.0 and self.b == 0.0 and self.c == 0.0 and self.d == 1.0:
+            return f"translate({self.tx:.3f}, {self.ty:.3f})"
+        # only scaling
+        elif self.c == 0.0 and self.d == 1.0:
+            return f"scale({self.a:.3f}, {self.b:.3f})"
+        # general transformation
+        else:
+            return f"matrix({self.a:.3f}, {self.b:.3f}, {self.c:.3f}, {self.d:.3f}, {self.tx:.3f}, {self.ty:.3f})"
+
+
+@dataclass
+class Transform(Resolvable):
+    a: float
+    b: float
+    c: float
+    d: float
+    tx: Lengths
+    ty: Lengths
+
+    def __init__(self, a: float, b: float, c: float, d: float, tx: Lengths, ty: Lengths):
+        tx.assert_scalar()
+        ty.assert_scalar()
+
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+        self.tx = tx
+        self.ty = ty
+
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsTransform:
+        return AbsTransform(
+            self.a, self.b, self.c, self.d, self.tx.resolve(coords, occupancy), self.ty.resolve(coords, occupancy)
+        )
+
+def translate(x: Lengths, y: Lengths) -> Transform:
+    return Transform(1.0, 0.0, 0.0, 1.0, x, y)
