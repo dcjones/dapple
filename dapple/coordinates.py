@@ -42,15 +42,67 @@ class Lengths(Resolvable):
     def __rmul__(self, other: float) -> Lengths:
         return LengthsMulOp(other, self)
 
+    def __neg__(self) -> Lengths:
+        return LengthsNegOp(self)
+
     def __abs__(self) -> Lengths:
         return LengthsAbsOp(self)
 
     def min(self, other: Lengths) -> Lengths:
+        # simplification rules:
+        # min(au, bu) = min(a, b)u (u is absolute)
+        if isinstance(self, AbsLengths) and isinstance(other, AbsLengths):
+            return abslengths(min(self.values.min(), other.values.min()))
+        # min(au, bu) = min(a, b)u (u is contextual)
+        if isinstance(self, CtxLengths) and isinstance(other, CtxLengths) and self.unit == other.unit and self.typ == other.typ:
+            # TODO: Ok, what do I do with position versus vector?
+            return ctxlengths(min(self.values.min(), other.values.min()), self.unit, self.typ)
+        # min(α + γ, β + γ) = min(α, β) + γ
+        if isinstance(self, LengthsAddOp) and isinstance(other, LengthsAddOp):
+            if self.a == other.a:
+                return self.a + self.b.min(other.b)
+            elif self.b == other.b:
+                return self.a.min(other.a) + other.b
+        # min(cα, cβ) = c min(α, β)
+        if isinstance(self, LengthsMulOp) and isinstance(other, LengthsMulOp):
+            if self.a == other.a:
+                if self.a >= 0.0:
+                    return self.a * self.b.min(other.b)
+                else:
+                    return self.a * self.b.max(other.b)
+        # min(-α, -β) = -max(α, β)
+        if isinstance(self, LengthsNegOp) and isinstance(other, LengthsNegOp):
+            return -self.a.max(other.a)
+
         return LengthsMinOp(self, other)
 
     def max(self, other: Lengths) -> Lengths:
-        return LengthsMaxOp(self, other)
+        # simplification rules:
+        # max(au, bu) = max(a, b)u (u is absolute)
+        if isinstance(self, AbsLengths) and isinstance(other, AbsLengths):
+            return abslengths(max(self.values.max(), other.values.max()))
+        # max(au, bu) = max(a, b)u (u is contextual)
+        if isinstance(self, CtxLengths) and isinstance(other, CtxLengths) and self.unit == other.unit and self.typ == other.typ:
+            # TODO: Ok, what do I do with position versus vector?
+            return ctxlengths(max(self.values.max(), other.values.max()), self.unit, self.typ)
+        # max(α + γ, β + γ) = max(α, β) + γ
+        if isinstance(self, LengthsAddOp) and isinstance(other, LengthsAddOp):
+            if self.a == other.a:
+                return self.a + self.b.max(other.b)
+            elif self.b == other.b:
+                return self.a.max(other.a) + other.b
+        # max(cα, cβ) = c max(α, β)
+        if isinstance(self, LengthsMulOp) and isinstance(other, LengthsMulOp):
+            if self.a == other.a:
+                if self.a >= 0.0:
+                    return self.a * self.b.max(other.b)
+                else:
+                    return self.a * self.b.min(other.b)
+        # max(-α, -β) = -min(α, β)
+        if isinstance(self, LengthsNegOp) and isinstance(other, LengthsNegOp):
+            return -self.a.min(other.a)
 
+        return LengthsMaxOp(self, other)
 
 @dataclass
 class AbsLengths(Lengths):
@@ -253,6 +305,24 @@ class LengthsMulOp(Lengths):
         return f"({self.a} * {self.b})"
 
 @dataclass
+class LengthsNegOp(Lengths):
+    a: Lengths
+
+    def __len__(self) -> int:
+        return len(self.a)
+
+    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
+        a = self.a.resolve(coords, occupancy)
+        assert isinstance(a, AbsLengths)
+        return AbsLengths(-a.values)
+
+    def __repr__(self) -> str:
+        return f"LengthsNegOp({self.a!r})"
+
+    def __str__(self) -> str:
+        return f"-{self.a}"
+
+@dataclass
 class LengthsAbsOp(Lengths):
     a: Lengths
 
@@ -411,3 +481,13 @@ class Transform(Resolvable):
 
 def translate(x: Lengths, y: Lengths) -> Transform:
     return Transform(1.0, 0.0, 0.0, 1.0, x, y)
+
+
+# Ok, I had a truly strange system in Dapple.jl. Let see if I can simplify
+# at all.
+# #
+class CoordBounds:
+    bounds: dict[str, Lengths]
+
+    def __init__(self):
+        self.bounds = dict()
