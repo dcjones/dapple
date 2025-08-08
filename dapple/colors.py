@@ -18,8 +18,8 @@ def color(value) -> Colors:
 
 # TODO: Actually the logic for this may be too tricky for singledispatch
 
-@color.register
-def _(value: Sequence) -> Colors:
+@color.register(list)
+def _(value) -> Colors:
     n = len(value)
     values = np.zeros((n, 4), dtype=np.float64)
     for i, v in enumerate(value):
@@ -27,11 +27,11 @@ def _(value: Sequence) -> Colors:
         values[i,:] = [rgba.r, rgba.g, rgba.b, rgba.a]
     return Colors(values)
 
-@color.register
-def _(value: str) -> Colors:
+@color.register(str)
+def _(value) -> Colors:
     return color(Color(value))
 
-@color.register
-def _(value: Color) -> Colors:
+@color.register(Color)
+def _(value) -> Colors:
     rgba = value.rgba
     return Colors(np.array([[rgba.r, rgba.g, rgba.b, rgba.a]], dtype=np.float64))

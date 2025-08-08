@@ -1,6 +1,8 @@
 
 
+from __future__ import annotations
 
+from typing import TYPE_CHECKING
 
 from dapple.coordinates import AbsLengths
 
@@ -11,6 +13,6 @@ class Occupancy:
     computing complex layout, like labeling and the such.
     """
 
-    def __init__(self, width: AbsLengths, height: AbsLengths):
+    def __init__(self, width: 'AbsLengths', height: 'AbsLengths'):
         self.width = width
         self.height = height

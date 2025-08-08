@@ -2,12 +2,13 @@
 from xml.etree import ElementTree as ET
 from xml.etree.ElementTree import ElementTree, Element
 from numbers import Number
-from typing import Union, TextIO, Optional
+from typing import Union, TextIO, Optional, BinaryIO
 import sys
 
 from dapple.coordinates import Resolvable, AbsCoordSet, AbsCoordTransform, Lengths, AbsLengths, abslengths
 from dapple.occupancy import Occupancy
 from dapple.clipboard import copy_svg, ClipboardError
+from dapple.export import svg_to_png, svg_to_pdf, ExportError
 
 
 # Figuring some things out here:
@@ -33,7 +34,7 @@ class Plot(ResolvableElement):
         #   - Return that rewritten tree.
         pass
 
-    def svg(self, width: Union[AbsLengths, Number], height: Union[AbsLengths, Number], output: Optional[str, TextIO]=None, clip: bool=False):
+    def svg(self, width: Union[AbsLengths, Number], height: Union[AbsLengths, Number], output: Optional[Union[str, TextIO]]=None, clip: bool=False):
         if not isinstance(width, AbsLengths):
             width = abslengths(width)
         width.assert_scalar()
@@ -72,6 +73,72 @@ class Plot(ResolvableElement):
                 tree.write(output, encoding="unicode", xml_declaration=True)
 
         return svg_root
+
+    def png(self, width: Union[AbsLengths, Number], height: Union[AbsLengths, Number],
+            output: Optional[Union[str, BinaryIO]]=None, dpi: int=96,
+            pixel_width: Optional[int]=None, pixel_height: Optional[int]=None) -> Optional[bytes]:
+        """
+        Export plot as PNG using Inkscape.
+
+        Args:
+            width: Width of the plot (in absolute units)
+            height: Height of the plot (in absolute units)
+            output: Output destination - can be:
+                - A string path to write the PNG file
+                - A file-like object opened in binary mode
+                - None to return the PNG data as bytes
+            dpi: Resolution in dots per inch (default: 96)
+            pixel_width: Optional width in pixels (overrides SVG dimensions)
+            pixel_height: Optional height in pixels (overrides SVG dimensions)
+
+        Returns:
+            PNG data as bytes if output is None, otherwise None
+
+        Raises:
+            ExportError: If Inkscape is not available or conversion fails
+        """
+        # First generate the SVG
+        svg_root = self.svg(width, height)
+        svg_string = ET.tostring(svg_root, encoding="unicode", method="xml")
+
+        # Convert to PNG using Inkscape
+        try:
+            return svg_to_png(svg_string, output=output, dpi=dpi,
+                            width=pixel_width, height=pixel_height)
+        except ExportError as e:
+            print(f"Error exporting to PNG: {e}", file=sys.stderr)
+            raise
+
+    def pdf(self, width: Union[AbsLengths, Number], height: Union[AbsLengths, Number],
+            output: Optional[Union[str, BinaryIO]]=None, text_to_path: bool=False) -> Optional[bytes]:
+        """
+        Export plot as PDF using Inkscape.
+
+        Args:
+            width: Width of the plot (in absolute units)
+            height: Height of the plot (in absolute units)
+            output: Output destination - can be:
+                - A string path to write the PDF file
+                - A file-like object opened in binary mode
+                - None to return the PDF data as bytes
+            text_to_path: Convert text to paths (default: False)
+
+        Returns:
+            PDF data as bytes if output is None, otherwise None
+
+        Raises:
+            ExportError: If Inkscape is not available or conversion fails
+        """
+        # First generate the SVG
+        svg_root = self.svg(width, height)
+        svg_string = ET.tostring(svg_root, encoding="unicode", method="xml")
+
+        # Convert to PDF using Inkscape
+        try:
+            return svg_to_pdf(svg_string, output=output, text_to_path=text_to_path)
+        except ExportError as e:
+            print(f"Error exporting to PDF: {e}", file=sys.stderr)
+            raise
 
 
 def plot(*args, **kwargs) -> Plot:

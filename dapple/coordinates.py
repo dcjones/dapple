@@ -13,15 +13,15 @@ import sympy
 
 class Resolvable(ABC):
     @abstractmethod
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Any:
+    def resolve(self, coords: 'AbsCoordSet', occupancy: Occupancy) -> Any:
         pass
 
 @singledispatch
-def resolve(value, coords: AbsCoordSet, occupancy: Occupancy) -> Any:
+def resolve(value, coords, occupancy):
     return value
 
-@resolve.register
-def _(arg: Resolvable, coords: AbsCoordSet, occupancy: Occupancy) -> Any:
+@resolve.register(Resolvable)
+def _(arg, coords, occupancy):
     return arg.resolve(coords, occupancy)
 
 
@@ -133,7 +133,7 @@ class AbsLengths(Lengths):
         self.assert_scalar()
         return float(self.values[0])
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
+    def resolve(self, coords: 'AbsCoordSet', occupancy: Occupancy) -> AbsLengths:
         return self
 
     def __repr__(self) -> str:
@@ -158,16 +158,20 @@ class AbsLengths(Lengths):
 def abslengths(value, scale=1.0) -> AbsLengths:
     raise NotImplementedError(f"Type {type(value)} can't be converted to an absolute length.")
 
-@abslengths.register
-def _(value: float, scale=1.0) -> AbsLengths:
+@abslengths.register(float)
+def _(value, scale=1.0) -> AbsLengths:
     return AbsLengths(np.array([value * scale], dtype=np.float64))
 
-@abslengths.register
-def _(value: list, scale=1.0) -> AbsLengths:
+@abslengths.register(int)
+def _(value, scale=1.0) -> AbsLengths:
+    return AbsLengths(np.array([value * scale], dtype=np.float64))
+
+@abslengths.register(list)
+def _(value, scale=1.0) -> AbsLengths:
     return AbsLengths(scale * np.asarray(value, dtype=np.float64))
 
-@abslengths.register
-def _(value: np.ndarray, scale=1.0) -> AbsLengths:
+@abslengths.register(np.ndarray)
+def _(value, scale=1.0) -> AbsLengths:
     return AbsLengths((scale * value).astype(np.float64))
 
 def mm(value):
@@ -216,7 +220,7 @@ class CtxLengths(Lengths):
         self.assert_scalar()
         return float(self.values[0])
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
+    def resolve(self, coords: 'AbsCoordSet', occupancy: Occupancy) -> AbsLengths:
         coord = coords.get(self.unit)
         if coord is None:
             raise ValueError(f"No coordinate for {self.unit}.")
@@ -249,16 +253,20 @@ class CtxLengths(Lengths):
 def ctxlengths(value, unit: str, typ: CtxLenType) -> CtxLengths:
     raise NotImplementedError(f"Type {type(value)} can't be converted to a contextual length.")
 
-@ctxlengths.register
-def _(value: float, unit: str, typ: CtxLenType) -> CtxLengths:
+@ctxlengths.register(float)
+def _(value, unit: str, typ: CtxLenType) -> CtxLengths:
     return CtxLengths(np.array([value], dtype=np.float64), unit, typ)
 
-@ctxlengths.register
-def _(value: list, unit: str, typ: CtxLenType) -> CtxLengths:
+@ctxlengths.register(int)
+def _(value, unit: str, typ: CtxLenType) -> CtxLengths:
+    return CtxLengths(np.array([value], dtype=np.float64), unit, typ)
+
+@ctxlengths.register(list)
+def _(value, unit: str, typ: CtxLenType) -> CtxLengths:
     return CtxLengths(np.asarray(value, dtype=np.float64), unit, typ)
 
-@ctxlengths.register
-def _(value: np.ndarray, unit: str, typ: CtxLenType) -> CtxLengths:
+@ctxlengths.register(np.ndarray)
+def _(value, unit: str, typ: CtxLenType) -> CtxLengths:
     return CtxLengths(value.astype(np.float64), unit, typ)
 
 def cx(value) -> CtxLengths:
@@ -299,7 +307,7 @@ class LengthsAddOp(Lengths):
     def __len__(self) -> int:
         return len(self.a)
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
+    def resolve(self, coords: 'AbsCoordSet', occupancy: Occupancy) -> AbsLengths:
         a = self.a.resolve(coords, occupancy)
         b = self.b.resolve(coords, occupancy)
         assert isinstance(a, AbsLengths) and isinstance(b, AbsLengths)
@@ -325,7 +333,7 @@ class LengthsMulOp(Lengths):
     def __len__(self) -> int:
         return len(self.b)
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
+    def resolve(self, coords: 'AbsCoordSet', occupancy: Occupancy) -> AbsLengths:
         b = self.b.resolve(coords, occupancy)
         assert isinstance(b, AbsLengths)
         return AbsLengths(self.a * b.values)
@@ -349,7 +357,7 @@ class LengthsNegOp(Lengths):
     def __len__(self) -> int:
         return len(self.a)
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
+    def resolve(self, coords: 'AbsCoordSet', occupancy: Occupancy) -> AbsLengths:
         a = self.a.resolve(coords, occupancy)
         assert isinstance(a, AbsLengths)
         return AbsLengths(-a.values)
@@ -373,7 +381,7 @@ class LengthsAbsOp(Lengths):
     def __len__(self) -> int:
         return len(self.a)
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
+    def resolve(self, coords: 'AbsCoordSet', occupancy: Occupancy) -> AbsLengths:
         a = self.a.resolve(coords, occupancy)
         assert isinstance(a, AbsLengths)
         return AbsLengths(np.abs(a.values))
@@ -404,7 +412,7 @@ class LengthsMinOp(Lengths):
     def __len__(self) -> int:
         return len(self.a)
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
+    def resolve(self, coords: 'AbsCoordSet', occupancy: Occupancy) -> AbsLengths:
         a = self.a.resolve(coords, occupancy)
         b = self.b.resolve(coords, occupancy)
         assert isinstance(a, AbsLengths) and isinstance(b, AbsLengths)
@@ -437,7 +445,7 @@ class LengthsMaxOp(Lengths):
     def __len__(self) -> int:
         return len(self.a)
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsLengths:
+    def resolve(self, coords: 'AbsCoordSet', occupancy: Occupancy) -> AbsLengths:
         a = self.a.resolve(coords, occupancy)
         b = self.b.resolve(coords, occupancy)
         assert isinstance(a, AbsLengths) and isinstance(b, AbsLengths)
@@ -461,7 +469,7 @@ class AbsCoordTransform(Resolvable):
     scale: float
     translate: float
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsCoordTransform:
+    def resolve(self, coords: 'AbsCoordSet', occupancy: Occupancy) -> AbsCoordTransform:
         return self
 
 AbsCoordSet: TypeAlias = dict[str, AbsCoordTransform]
@@ -471,7 +479,7 @@ class CoordTransform(Resolvable):
     scale: Lengths
     translate: Lengths
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsCoordTransform:
+    def resolve(self, coords: 'AbsCoordSet', occupancy: Occupancy) -> AbsCoordTransform:
         abs_scale = self.scale.resolve(coords, occupancy)
         abs_translate = self.translate.resolve(coords, occupancy)
         assert isinstance(abs_scale, AbsLengths) and isinstance(abs_translate, AbsLengths)
@@ -535,7 +543,7 @@ class Transform(Resolvable):
         self.tx = tx
         self.ty = ty
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> AbsTransform:
+    def resolve(self, coords: 'AbsCoordSet', occupancy: Occupancy) -> AbsTransform:
         return AbsTransform(
             self.a, self.b, self.c, self.d, self.tx.resolve(coords, occupancy), self.ty.resolve(coords, occupancy)
         )
