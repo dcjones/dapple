@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import singledispatch
 from numpy.typing import NDArray
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, Tuple
 import numpy as np
+import sympy
 
 class Resolvable(ABC):
     @abstractmethod
@@ -104,6 +105,17 @@ class Lengths(Resolvable):
 
         return LengthsMaxOp(self, other)
 
+    @abstractmethod
+    def to_sympy(self) -> sympy.Expr:
+        """
+        Convert the lengths expression to a sympy expression.
+        """
+        pass
+
+    @abstractmethod
+    def units(self) -> set[str]:
+        pass
+
 @dataclass
 class AbsLengths(Lengths):
     """
@@ -132,6 +144,13 @@ class AbsLengths(Lengths):
             return f"{self.values[0]}mm"
         else:
             return f"{self.values}mm"
+
+    def to_sympy(self) -> sympy.Expr:
+        self.assert_scalar()
+        return self.values[0] * sympy.Symbol("mm", positive=True)
+
+    def units(self) -> set[str]:
+        return set()
 
 # Constructing absolute lengths
 
@@ -219,6 +238,13 @@ class CtxLengths(Lengths):
         else:
             return f"{self.values}{unit_str}"
 
+    def to_sympy(self) -> sympy.Expr:
+        self.assert_scalar()
+        return self.values[0] * sympy.Symbol(self.unit, positive=True)
+
+    def units(self) -> set[str]:
+        return set([self.unit])
+
 @singledispatch
 def ctxlengths(value, unit: str, typ: CtxLenType) -> CtxLengths:
     raise NotImplementedError(f"Type {type(value)} can't be converted to a contextual length.")
@@ -285,6 +311,12 @@ class LengthsAddOp(Lengths):
     def __str__(self) -> str:
         return f"({self.a} + {self.b})"
 
+    def to_sympy(self) -> sympy.Expr:
+        return self.a.to_sympy() + self.b.to_sympy()
+
+    def units(self) -> set[str]:
+        return self.a.units().union(self.b.units())
+
 @dataclass
 class LengthsMulOp(Lengths):
     a: float
@@ -304,6 +336,12 @@ class LengthsMulOp(Lengths):
     def __str__(self) -> str:
         return f"({self.a} * {self.b})"
 
+    def to_sympy(self) -> sympy.Expr:
+        return self.a * self.b.to_sympy()
+
+    def units(self) -> set[str]:
+        return self.b.units()
+
 @dataclass
 class LengthsNegOp(Lengths):
     a: Lengths
@@ -322,6 +360,12 @@ class LengthsNegOp(Lengths):
     def __str__(self) -> str:
         return f"-{self.a}"
 
+    def to_sympy(self) -> sympy.Expr:
+        return -self.a.to_sympy()
+
+    def units(self) -> set[str]:
+        return self.a.units()
+
 @dataclass
 class LengthsAbsOp(Lengths):
     a: Lengths
@@ -339,6 +383,12 @@ class LengthsAbsOp(Lengths):
 
     def __str__(self) -> str:
         return f"abs({self.a})"
+
+    def to_sympy(self) -> sympy.Expr:
+        return abs(self.a.to_sympy())
+
+    def units(self) -> set[str]:
+        return self.a.units()
 
 @dataclass
 class LengthsMinOp(Lengths):
@@ -367,6 +417,12 @@ class LengthsMinOp(Lengths):
     def __str__(self) -> str:
         return f"({self.a}).min({self.b})"
 
+    def to_sympy(self) -> sympy.Expr:
+        return sympy.Min(self.a.to_sympy(), self.b.to_sympy())
+
+    def units(self) -> set[str]:
+        return self.a.units().union(self.b.units())
+
 @dataclass
 class LengthsMaxOp(Lengths):
     a: Lengths
@@ -394,6 +450,11 @@ class LengthsMaxOp(Lengths):
     def __str__(self) -> str:
         return f"({self.a}).max({self.b})"
 
+    def to_sympy(self) -> sympy.Expr:
+        return sympy.Max(self.a.to_sympy(), self.b.to_sympy())
+
+    def units(self) -> set[str]:
+        return self.a.units().union(self.b.units())
 
 @dataclass
 class AbsCoordTransform(Resolvable):
@@ -483,11 +544,19 @@ def translate(x: Lengths, y: Lengths) -> Transform:
     return Transform(1.0, 0.0, 0.0, 1.0, x, y)
 
 
-# Ok, I had a truly strange system in Dapple.jl. Let see if I can simplify
-# at all.
-# #
 class CoordBounds:
-    bounds: dict[str, Lengths]
+    """
+    Used to keep track of upper and lower bounds corresponding to each contextual unit.
+    """
+    bounds: dict[str, Tuple[Lengths, Lengths]]
 
     def __init__(self):
         self.bounds = dict()
+
+    def update(self, l: Lengths):
+        for unit in l.units():
+            if unit in self.bounds:
+                lower, upper = self.bounds[unit]
+                self.bounds[unit] = (lower.min(l), upper.max(l))
+            else:
+                self.bounds[unit] = (l, l)

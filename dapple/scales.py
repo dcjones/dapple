@@ -53,6 +53,13 @@ class UnscaledValues(UnscaledExpr):
     values: Iterable
     typ: CtxLenType=CtxLenType.Vec
 
+    def __init__(self, unit: str, values: Any, typ: CtxLenType=CtxLenType.Vec):
+        if not isinstance(values, Iterable):
+            values = [values]
+        self.unit = unit
+        self.values = values
+        self.typ = typ
+
     def accept_fit(self, scale: Scale):
         scale.fit_values(self)
 

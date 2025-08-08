@@ -33,6 +33,9 @@ class VectorizedElement(ResolvableElement):
         super().__init__(tag, attrib, **extra)
 
     def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Element:
+        # TODO: Actually, I think we shouldn't expand this when we resolve. Instead
+        # we should do this when we write to xml.
+
         g = svg.g()
 
         keys = []
