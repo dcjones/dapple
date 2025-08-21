@@ -17,17 +17,37 @@ from dapple.export import svg_to_png, svg_to_pdf, ExportError
 #
 #
 
-from .treemap import treemap
 from .scales import Scale
 from .coordinates import Resolvable
-from .elements import ResolvableElement
+from .elements import ResolvableElement, traverse_attributes
 
 
 class Plot(ResolvableElement):
     def __init__(self):
+        # TODO:
+        # - default scales and such
+
         super().__init__("dapple:plot")
 
     def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Union[Lengths, Element]:
+
+
+        # Set up default scales
+        #
+        # TODO: I can't to check every UnscaledValues
+        #
+
+
+
+        traverse_attributes(self, lambda attr, value: UnscaledValues)
+
+
+        # TODO
+        #
+        #
+
+
+
         # TODO: Do a lot of stuff here.
         #   - Figure out scale, coords, layouts.
         #   - Traverse and rewrite the tree.

@@ -3,9 +3,22 @@ from xml.etree.ElementTree import Element
 from .coordinates import CoordTransform, Resolvable, AbsCoordSet, Lengths, Occupancy, Transform, resolve, mm, translate
 from .colors import Colors
 from . import svg
-from typing import Collection
+from typing import Any, Collection, Callable, Optional
 from itertools import cycle
+from functools import singledispatch
 
+
+def traverse_attributes(el: Element, visitor: Callable[[str, Any], None], filter_type: Optional[type]):
+    """
+    Simple functional tree traversal for element trees.
+    """
+
+    for attr, value in el.attrib.items():
+        if filter_type is None or isinstance(value, filter_type):
+            visitor(attr, value)
+
+    for child in el:
+        traverse_attributes(child, visitor, filter_type)
 
 class ResolvableElement(Element, Resolvable):
     """
@@ -16,6 +29,11 @@ class ResolvableElement(Element, Resolvable):
         super().__init__(tag, attrib, **extra)
 
     def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Element:
+        """
+        Convert the resolvable element into a regular svg element by providing
+        context on absolute sizes ond occupancy.
+        """
+
         attrib = {k: resolve(v, coords, occupancy) for (k, v) in self.attrib.items()}
         el = Element(self.tag, attrib)
 
@@ -23,6 +41,17 @@ class ResolvableElement(Element, Resolvable):
             el.append(resolve(child, coords, occupancy))
 
         return el
+
+
+    # TODO: Blaahhh. Not sure this can work because we have
+    # to be able to traverse anything, not just resolvable nodes.
+    # Ohh, I guess we handle this the same way we did with `resolve`.
+    def traverse(self, visitor: Callable):
+        """
+        Visit this
+        """
+
+
 
 class VectorizedElement(ResolvableElement):
     """
