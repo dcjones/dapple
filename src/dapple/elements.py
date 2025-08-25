@@ -1,11 +1,13 @@
 
 from xml.etree.ElementTree import Element
-from .coordinates import CoordTransform, Resolvable, AbsCoordSet, Lengths, Occupancy, Transform, resolve, mm, translate
+from .coordinates import CoordTransform, Resolvable, AbsCoordSet, AbsLengths, Lengths, Transform, ResolveContext, resolve, mm, cw, ch, translate
+from .occupancy import Occupancy
 from .colors import Colors
 from . import svg
-from typing import Any, Collection, Callable, Optional
+from typing import Any, Collection, Callable, Optional, Iterable
 from itertools import cycle
 from functools import singledispatch
+from copy import copy
 
 
 def traverse_attributes(el: Element, visitor: Callable[[str, Any], None], filter_type: Optional[type]):
@@ -20,6 +22,44 @@ def traverse_attributes(el: Element, visitor: Callable[[str, Any], None], filter
     for child in el:
         traverse_attributes(child, visitor, filter_type)
 
+
+def rewrite_attributes(el: Element, visitor: Callable[[str, Any], Any], filter_type: Optional[type]):
+    """
+    Rewrite an element tree by applying a function to every elements attribute (optionally, only of a particular type)
+    """
+
+    el_rewrite = copy(el)
+    el_rewrite.clear()
+
+    el_rewrite.text = el.text
+    el_rewrite.attrib = {}
+    for attr, value in el.attrib.items():
+        if filter_type is None or isinstance(value, filter_type):
+            el_rewrite.attrib[attr] = visitor(attr, value)
+        else:
+            el_rewrite.attrib[attr] = value
+
+    for child in el:
+        el_rewrite.append(rewrite_attributes(child, visitor, filter_type))
+
+    return el_rewrite
+
+
+def abs_bounds(el: Element) -> tuple[AbsLengths, AbsLengths]:
+    """
+    Elements can optionally supply lower bound in absolute units, for the amount
+    of space they need. This is only necessary for elements positioned on the
+    sides of plots, where we need to know how much space to reserve.
+    """
+
+    if isinstance(el, ResolvableElement):
+        return el.abs_bounds()
+    elif isinstance(el, Element):
+        return mm(0), mm(0)
+    else:
+        raise TypeError(f"Unsupported element type: {type(el)}")
+
+
 class ResolvableElement(Element, Resolvable):
     """
     An XML element that can be resolved (unually into another element).
@@ -28,29 +68,22 @@ class ResolvableElement(Element, Resolvable):
     def __init__(self, tag: str, attrib={}, **extra):
         super().__init__(tag, attrib, **extra)
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Element:
+    def resolve(self, ctx: ResolveContext) -> Element:
         """
         Convert the resolvable element into a regular svg element by providing
         context on absolute sizes ond occupancy.
         """
 
-        attrib = {k: resolve(v, coords, occupancy) for (k, v) in self.attrib.items()}
+        attrib = {k: resolve(v, ctx) for (k, v) in self.attrib.items()}
         el = Element(self.tag, attrib)
 
         for child in self:
-            el.append(resolve(child, coords, occupancy))
+            el.append(resolve(child, ctx))
 
         return el
 
-
-    # TODO: Blaahhh. Not sure this can work because we have
-    # to be able to traverse anything, not just resolvable nodes.
-    # Ohh, I guess we handle this the same way we did with `resolve`.
-    def traverse(self, visitor: Callable):
-        """
-        Visit this
-        """
-
+    def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
+        return mm(0), mm(0)
 
 
 class VectorizedElement(ResolvableElement):
@@ -61,7 +94,7 @@ class VectorizedElement(ResolvableElement):
     def __init__(self, tag: str, attrib={}, **extra):
         super().__init__(tag, attrib, **extra)
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Element:
+    def resolve(self, ctx: ResolveContext) -> Element:
         # TODO: Actually, I think we shouldn't expand this when we resolve. Instead
         # we should do this when we write to xml.
 
@@ -84,7 +117,7 @@ class VectorizedElement(ResolvableElement):
             raise ValueError("VectorizedElement must have vector attributes")
 
         resolved_children = [
-            resolve(child, coords, occupancy)
+            resolve(child, ctx)
             for child in self
         ]
 
@@ -97,7 +130,7 @@ class VectorizedElement(ResolvableElement):
         return g
 
 
-class ContextElement(ResolvableElement):
+class ViewportElement(ResolvableElement):
     """
     A special container element used as a shortcut for defining the special `vw`
     and `vh` units. The primary use case is to define a particular region using
@@ -123,3 +156,14 @@ class ContextElement(ResolvableElement):
         }
 
         super().__init__("g", attribs)
+
+
+def viewport(children: Iterable[Element], x: Lengths=mm(0), y: Lengths=mm(0), width: Optional[Lengths]=None, height: Optional[Lengths]=None):
+    if width is None:
+        width = cw(1) - x
+    if height is None:
+        height = ch(1) - y
+
+    vp = ViewportElement(x, y, width, height)
+    for el in children:
+        vp.append(el)

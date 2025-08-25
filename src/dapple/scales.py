@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .colors import Colors
 from .coordinates import Lengths, CtxLengths, CtxLenType
+from .defaults import DEFAULTS
 from abc import ABC, abstractmethod
 from cmap import Colormap, ColormapLike
 from collections import namedtuple
@@ -10,7 +11,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from numpy.typing import NDArray
-from typing import Any, Mapping, Sequence, Tuple, Callable, Optional, Union
+from typing import Any, Mapping, Sequence, Tuple, Callable, Optional, Union, TypeAlias
+from numbers import Number
 import numpy as np
 import operator
 
@@ -24,11 +26,15 @@ class UnscaledExpr(ABC):
     """
 
     @abstractmethod
-    def accept_fit(self, scale: Scale):
+    def accept_fit(self, scaleset: ScaleSet):
         pass
 
     @abstractmethod
-    def accept_scale(self, scale: Scale) -> Lengths | Colors:
+    def accept_scale(self, scaleset: ScaleSet) -> Lengths | Colors:
+        pass
+
+    @abstractmethod
+    def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]):
         pass
 
     def __add__(self, other):
@@ -60,11 +66,24 @@ class UnscaledValues(UnscaledExpr):
         self.values = values
         self.typ = typ
 
-    def accept_fit(self, scale: Scale):
-        scale.fit_values(self)
+    def accept_fit(self, scaleset: ScaleSet):
+        scaleset[self.unit].fit_values(self)
 
-    def accept_scale(self, scale: Scale) -> Lengths | Colors:
-        return scale.scale_values(self)
+    def accept_scale(self, scaleset: ScaleSet) -> Lengths | Colors:
+        return scaleset[self.unit].scale_values(self)
+
+    def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]):
+        visitor(self)
+
+    def all_numeric(self) -> bool:
+        if isinstance(self.values, np.ndarray):
+            return issubclass(self.values.dtype.type, Number)
+        else:
+            for v in self.values:
+                if not isinstance(v, Number):
+                    return False
+            return True
+
 
 @dataclass
 class UnscaledUnaryOp(UnscaledExpr):
@@ -75,14 +94,19 @@ class UnscaledUnaryOp(UnscaledExpr):
     a: Union[UnscaledExpr, Lengths]
     op: Callable
 
-    def accept_fit(self, scale: Scale):
+    def accept_fit(self, scaleset: ScaleSet):
         if isinstance(self.a, UnscaledExpr):
-            self.a.accept_fit(scale)
+            self.a.accept_fit(scaleset)
 
-    def accept_scale(self, scale: Scale) -> Lengths | Colors:
+    def accept_scale(self, scaleset: ScaleSet) -> Lengths | Colors:
         return self.op(
-            self.a.accept_scale(scale) if isinstance(self.a, UnscaledExpr) else self.a
+            self.a.accept_scale(scaleset) if isinstance(self.a, UnscaledExpr) else self.a
         )
+
+    def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]):
+        if isinstance(self.a, UnscaledExpr):
+            self.a.accept_visitor(visitor)
+
 
 @dataclass
 class UnscaledBinaryOp(UnscaledExpr):
@@ -94,17 +118,23 @@ class UnscaledBinaryOp(UnscaledExpr):
     b: Union[UnscaledExpr, Lengths]
     op: Callable
 
-    def accept_fit(self, scale: Scale):
+    def accept_fit(self, scaleset: ScaleSet):
         if isinstance(self.a, UnscaledExpr):
-            self.a.accept_fit(scale)
+            self.a.accept_fit(scaleset)
         if isinstance(self.b, UnscaledExpr):
-            self.b.accept_fit(scale)
+            self.b.accept_fit(scaleset)
 
-    def accept_scale(self, scale: Scale) -> Lengths | Colors:
+    def accept_scale(self, scaleset: ScaleSet) -> Lengths | Colors:
         return self.op(
-            self.a.accept_scale(scale) if isinstance(self.a, UnscaledExpr) else self.a,
-            self.b.accept_scale(scale) if isinstance(self.b, UnscaledExpr) else self.b
+            self.a.accept_scale(scaleset) if isinstance(self.a, UnscaledExpr) else self.a,
+            self.b.accept_scale(scaleset) if isinstance(self.b, UnscaledExpr) else self.b
         )
+
+    def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]):
+        if isinstance(self.a, UnscaledExpr):
+            self.a.accept_visitor(visitor)
+        if isinstance(self.b, UnscaledExpr):
+            self.b.accept_visitor(visitor)
 
 class Scale(ABC):
     """
@@ -116,9 +146,6 @@ class Scale(ABC):
     to scale them.
     """
 
-    def fit(self, expr: UnscaledExpr):
-        expr.accept_fit(self)
-
     @abstractmethod
     def fit_values(self, values: UnscaledValues):
         pass
@@ -126,9 +153,6 @@ class Scale(ABC):
     @abstractmethod
     def finalize(self):
         pass
-
-    def scale(self, expr: UnscaledExpr) -> Lengths | Colors:
-        return expr.accept_scale(self)
 
     @abstractmethod
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
@@ -331,6 +355,17 @@ class TickCoverage(Enum):
     StrictSub=2
     StrictSuper=3
 
+    @classmethod
+    def from_str(cls, value: str) -> "TickCoverage":
+        value = value.lower()
+        if value == "flexible":
+            return cls.Flexible
+        elif value == "strictsub":
+            return cls.StrictSub
+        elif value == "strictsuper":
+            return cls.StrictSuper
+        else:
+            raise ValueError(f"Invalid tick coverage: {value}")
 
 def _label_numbers(xs: np.ndarray) -> NDArray[np.str_]:
     MAX_PRECISION = 5
@@ -499,7 +534,10 @@ class ScaleContinuous(Scale):
         return ticks, subticks
 
 class ScaleContinuousColor(ScaleContinuous):
-    def __init__(self, unit: str, colormap: ColormapLike, tick_coverage: TickCoverage, choose_tick_params: ChooseTicksParams = DEFAULT_CHOOSE_TICKS_PARAMS):
+    def __init__(
+            self, unit: str, colormap: ColormapLike,
+            tick_coverage: TickCoverage=TickCoverage.from_str(DEFAULTS["tick_coverage"]),
+            choose_tick_params: ChooseTicksParams = DEFAULT_CHOOSE_TICKS_PARAMS):
         self.colormap = Colormap(colormap)
         super().__init__(unit, tick_coverage, choose_tick_params)
 
@@ -520,7 +558,10 @@ def colorcontinuous(*args, **kwargs) -> ScaleContinuousColor:
 
 
 class ScaleContinuousLength(ScaleContinuous):
-    def __init__(self, unit: str, tick_coverage: TickCoverage, choose_tick_params: ChooseTicksParams = DEFAULT_CHOOSE_TICKS_PARAMS):
+    def __init__(
+            self, unit: str,
+            tick_coverage: TickCoverage=TickCoverage.from_str(DEFAULTS["tick_coverage"]),
+            choose_tick_params: ChooseTicksParams = DEFAULT_CHOOSE_TICKS_PARAMS):
         super().__init__(unit, tick_coverage, choose_tick_params)
 
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
@@ -549,3 +590,5 @@ _default_scales = {
     "color": (colordiscrete, colorcontinuous),
     "size": (None, sizecontinuous),
 }
+
+ScaleSet: TypeAlias = dict[str, Scale]

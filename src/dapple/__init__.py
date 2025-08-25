@@ -3,24 +3,132 @@ from xml.etree import ElementTree as ET
 from xml.etree.ElementTree import ElementTree, Element
 from numbers import Number
 from typing import Union, TextIO, Optional, BinaryIO
+from enum import Enum
+import numpy as np
 import sys
 
-from dapple.coordinates import Resolvable, AbsCoordSet, AbsCoordTransform, Lengths, AbsLengths, abslengths
-from dapple.occupancy import Occupancy
-from dapple.clipboard import copy_svg, ClipboardError
-from dapple.export import svg_to_png, svg_to_pdf, ExportError
-
-
-# Figuring some things out here:
-#   - We should be able to build our tree using xml.etree.ElementTree, which
-#     is pretty much our XML representation.
-#
-#
-
+from .coordinates import Resolvable, AbsCoordSet, AbsCoordTransform, Lengths, AbsLengths, ResolveContext, Lengths, abslengths
+from .coordinates import mm, cm, pt, inch
+from .coordinates import cx, cxv, cy, cyv, cw, cwv, ch, chv
+from .occupancy import Occupancy
+from .clipboard import copy_svg, ClipboardError
+from .scales import UnscaledValues, UnscaledExpr, ScaleSet, ScaleContinuousColor, ScaleDiscreteColor, ScaleContinuousLength, ScaleDiscreteLength
+from .export import svg_to_png, svg_to_pdf, ExportError
+from .defaults import DEFAULTS
 from .scales import Scale
 from .coordinates import Resolvable
-from .elements import ResolvableElement, traverse_attributes
+from .elements import ResolvableElement, traverse_attributes, rewrite_attributes, abs_bounds, viewport
 
+
+class Position(Enum):
+    """
+    Represents relative positioning of a plot element, to be arranged by the by
+    the layout function.
+    """
+
+    Default = 1 # place in the panel, with unspecified order
+
+    Above = 2
+    AboveTopLeft = 3
+    AboveTopRight = 4
+    AboveBottomLeft = 5
+    AboveBottomRight = 6
+
+    Below = 7
+    BelowTopLeft = 8
+    BelowTopRight = 9
+    BelowBottomLeft = 10
+    BelowBottomRight = 11
+
+    BottomLeft = 12
+    BottomCenter = 13
+    BottomRight = 14
+
+    TopLeft = 15
+    TopCenter = 16
+    TopRight = 17
+
+    LeftTop = 18
+    LeftCenter = 19
+    LeftBottom = 20
+
+    RightTop = 21
+    RightCenter = 22
+    RightBottom = 23
+
+    def isabove(self) -> bool:
+        return self in [Position.Above, Position.AboveTopLeft, Position.AboveTopRight, Position.AboveBottomLeft, Position.AboveBottomRight]
+
+    def isbelow(self) -> bool:
+        return self in [Position.Below, Position.BelowTopLeft, Position.BelowTopRight, Position.BelowBottomLeft, Position.BelowBottomRight]
+
+    def isbottom(self) -> bool:
+        return self in [Position.BottomLeft, Position.BottomCenter, Position.BottomRight]
+
+    def istop(self) -> bool:
+        return self in [Position.TopLeft, Position.TopCenter, Position.TopRight]
+
+    def isleft(self) -> bool:
+        return self in [Position.LeftTop, Position.LeftCenter, Position.LeftBottom]
+
+    def isright(self) -> bool:
+        return self in [Position.RightTop, Position.RightCenter, Position.RightBottom]
+
+    def offset(self, width: AbsLengths, height: AbsLengths) -> tuple[Lengths, Lengths]:
+        """
+        Give the size of the element in absolute units, return the position it should be placed at
+        with respect to the cell its placed in in the grid layout.
+        """
+
+        match self:
+            case Position.Default:
+                return mm(0), mm(0)
+            case Position.Above:
+                return mm(0), mm(0)
+            case Position.Below:
+                return mm(0), mm(0)
+            case Position.AboveTopLeft:
+                return mm(0), mm(0)
+            case Position.AboveTopRight:
+                return cw(1) - width, mm(0)
+            case Position.AboveBottomLeft:
+                return mm(0), ch(1) - height
+            case Position.AboveBottomRight:
+                return cw(1) - width, ch(1) - height
+            case Position.BelowTopLeft:
+                return mm(0), mm(0)
+            case Position.BelowTopRight:
+                return cw(1) - width, mm(0)
+            case Position.BelowBottomLeft:
+                return mm(0), ch(1) - height
+            case Position.BelowBottomRight:
+                return cw(1) - width, ch(1) - height
+            case Position.BottomLeft:
+                return mm(0), mm(0)
+            case Position.BottomCenter:
+                return cw(0.5) - 0.5*width, mm(0)
+            case Position.BottomRight:
+                return cw(1) - width, mm(0)
+            case Position.TopLeft:
+                return mm(0), mm(0)
+            case Position.TopCenter:
+                return cw(0.5) - 0.5*width, mm(0)
+            case Position.TopRight:
+                return cw(1) - width, mm(0)
+            case Position.LeftTop:
+                return mm(0), mm(0)
+            case Position.LeftCenter:
+                return mm(0), ch(0.5) - 0.5*height
+            case Position.LeftBottom:
+                return mm(0), ch(1) - height
+            case Position.RightTop:
+                return mm(0), mm(0)
+            case Position.RightCenter:
+                return mm(0), ch(0.5) - 0.5*height
+            case Position.RightBottom:
+                return mm(0), ch(1) - height
+            case _:
+                raise ValueError(f"Invalid position: {self}")
 
 class Plot(ResolvableElement):
     def __init__(self):
@@ -29,30 +137,151 @@ class Plot(ResolvableElement):
 
         super().__init__("dapple:plot")
 
-    def resolve(self, coords: AbsCoordSet, occupancy: Occupancy) -> Union[Lengths, Element]:
-
+    def resolve(self, ctx: ResolveContext) -> Element:
+        """
+        The root resolve function. This does a certain about of set up before
+        recursively calling resolve on the rest of the tree.
+        """
 
         # Set up default scales
-        #
-        # TODO: I can't to check every UnscaledValues
-        #
+        scaleset = self.attrib.get("dapple:scaleset", ScaleSet())
+        assert isinstance(scaleset, dict)
 
+        all_numeric = dict()
+        def update_all_numeric_values(values: UnscaledValues):
+            all_numeric[values.unit] = all_numeric.get(values.unit, True) & values.all_numeric()
 
+        def update_all_numeric_expr(_attr, values: UnscaledExpr):
+            values.accept_visitor(update_all_numeric_values)
 
-        traverse_attributes(self, lambda attr, value: UnscaledValues)
+        traverse_attributes(self, update_all_numeric_expr, UnscaledExpr)
 
+        for (unit, numeric) in all_numeric.items():
+            if unit in scaleset:
+                continue
 
+            if unit == "color":
+                if numeric:
+                    scaleset[unit] = ScaleContinuousColor(unit, colormap=DEFAULTS["continuous_cmap"])
+                else:
+                    scaleset[unit] = ScaleDiscreteColor(unit, colormap=DEFAULTS["discrete_cmap"])
+            elif unit == "shape":
+                raise Exception("shape scale not yet implemented")
+            else:
+                if numeric:
+                    scaleset[unit] = ScaleContinuousLength(unit)
+                else:
+                    scaleset[unit] = ScaleDiscreteLength(unit)
+
+        # Fit and apply scales
+        def fit_expr(_attr, expr: UnscaledExpr):
+            expr.accept_fit(scaleset)
+
+        traverse_attributes(self, fit_expr, UnscaledExpr)
+
+        def scale_expr(_attr, expr: UnscaledExpr):
+            return expr.accept_scale(scaleset)
+
+        root = rewrite_attributes(self, scale_expr, UnscaledExpr)
+
+        # Layout plot
         # TODO
-        #
-        #
 
+        # Fit coordinates
+        # TODO
 
+        # Resolve children
+        # TODO
 
-        # TODO: Do a lot of stuff here.
-        #   - Figure out scale, coords, layouts.
-        #   - Traverse and rewrite the tree.
-        #   - Return that rewritten tree.
+        # TODO: assert there are no "dapple:" attributes or tags
         pass
+
+    def layout(self, width: AbsLengths, height: AbsLengths) -> Element:
+        """
+        Arrange child elements in a grid, based on the "dapple:position" attribute.
+        """
+
+        nleft = 0
+        nright = 0
+        ntop = 0
+        nbottom = 0
+        for child in self:
+            position = child.attrib.get("dapple:position", Position.Default)
+            assert isinstance(position, Position)
+
+            if position.isleft():
+                nleft += 1
+            elif position.isright():
+                nright += 1
+            elif position.istop():
+                ntop += 1
+            elif position.isbottom():
+                nbottom += 1
+
+        nrow = 1 + ntop + nbottom
+        ncol = 1 + nleft + nright
+
+        # REMEMBER: 0-based indexes!!!
+
+        grid = np.full((nrow, ncol), None, dtype=object)
+        i_focus = ntop
+        j_focus = nleft
+
+        unpositioned_nodes = []
+        above_nodes = []
+        below_nodes = []
+
+        next_left = j_focus - 1
+        next_right = j_focus + 1
+        next_top = i_focus - 1
+        next_bottom = i_focus + 1
+
+        for child in self:
+            position = child.attrib.get("dapple:position", Position.Default)
+            assert isinstance(position, Position)
+
+            if position == Position.Default:
+                unpositioned_nodes.append(child)
+            elif position == Position.Below:
+                below_nodes.append(child)
+            elif position.isbelow():
+                wbound, hbound = abs_bounds(child)
+                xoff, yoff = position.offset(wbound, hbound)
+                childvp = viewport([child], x=xoff, y=yoff, width=wbound, height=hbound)
+                below_nodes.append(childvp)
+            elif position == Position.Above:
+                above_nodes.append(child)
+            elif position.isabove():
+                wbound, hbound = abs_bounds(child)
+                xoff, yoff = position.offset(wbound, hbound)
+                childvp = viewport([child], x=xoff, y=yoff, width=wbound, height=hbound)
+                above_nodes.append(childvp)
+            elif position.isleft():
+                grid[i_focus, next_left] = child
+                next_left -= 1
+            elif position.isright():
+                grid[i_focus, next_right] = child
+                next_right += 1
+            elif position.istop():
+                grid[next_top, j_focus] = child
+                next_top -= 1
+            elif position.isbottom():
+                grid[next_bottom, j_focus] = child
+                next_bottom += 1
+
+        assert next_left == -1
+        assert next_right == ncol
+        assert next_top == -1
+        assert next_bottom == nrow
+
+        panel_nodes = sum([below_nodes, unpositioned_nodes, above_nodes], []) # concatenate
+        grid[i_focus, j_focus] = viewport(panel_nodes)
+        grid[i_focus, j_focus].attrib["dapple:track-occupancy"] = True
+
+        # TODO: More layout logic from the `layout_plot!` function.
+        # Maybe we name this function `_arrange_children` and have the
+        # real layout method call it.
+
 
     def svg(self, width: Union[AbsLengths, Number], height: Union[AbsLengths, Number], output: Optional[Union[str, TextIO]]=None, clip: bool=False):
         if not isinstance(width, AbsLengths):
@@ -69,7 +298,16 @@ class Plot(ResolvableElement):
         }
         occupancy = Occupancy(width, height)
 
-        resolved_plot = self.resolve(coords, occupancy)
+        scales = self.attrib.get("dapple:scaleset", ScaleSet())
+        assert isinstance(scales, dict)
+
+        ctx = ResolveContext(
+            coords,
+            scales,
+            occupancy
+        )
+
+        resolved_plot = self.resolve(ctx)
         assert isinstance(resolved_plot, Element)
 
         svg_root = Element("svg")

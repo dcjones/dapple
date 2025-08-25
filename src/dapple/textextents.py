@@ -8,7 +8,7 @@ FreeType's precise glyph metrics.
 """
 
 from matplotlib import font_manager
-from .coordinates import AbsLengths
+from .coordinates import mm, AbsLengths
 from typing import Tuple
 import uharfbuzz as hb
 import freetype
@@ -186,4 +186,4 @@ class Font:
         width_mm = width_pts * MM_PER_PT
         height_mm = height_pts * MM_PER_PT
 
-        return AbsLengths(width_mm), AbsLengths(height_mm)
+        return mm(width_mm), mm(height_mm)
