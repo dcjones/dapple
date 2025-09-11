@@ -158,7 +158,7 @@ class ViewportElement(ResolvableElement):
         super().__init__("g", attribs)
 
 
-def viewport(children: Iterable[Element], x: Lengths=mm(0), y: Lengths=mm(0), width: Optional[Lengths]=None, height: Optional[Lengths]=None):
+def viewport(children: Iterable[Element], x: Lengths=mm(0), y: Lengths=mm(0), width: Optional[Lengths]=None, height: Optional[Lengths]=None) -> ViewportElement:
     if width is None:
         width = cw(1) - x
     if height is None:
@@ -167,3 +167,4 @@ def viewport(children: Iterable[Element], x: Lengths=mm(0), y: Lengths=mm(0), wi
     vp = ViewportElement(x, y, width, height)
     for el in children:
         vp.append(el)
+    return vp

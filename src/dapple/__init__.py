@@ -182,10 +182,11 @@ class Plot(ResolvableElement):
         def scale_expr(_attr, expr: UnscaledExpr):
             return expr.accept_scale(scaleset)
 
-        root = rewrite_attributes(self, scale_expr, UnscaledExpr)
-
         # Layout plot
-        # TODO
+        els = list(rewrite_attributes(self, scale_expr, UnscaledExpr))
+        width = mm(ctx.coords["vw"].scale)
+        height = mm(ctx.coords["vh"].scale)
+        root = self.layout(els, width, height)
 
         # Fit coordinates
         # TODO
@@ -278,9 +279,68 @@ class Plot(ResolvableElement):
         grid[i_focus, j_focus] = viewport(panel_nodes)
         grid[i_focus, j_focus].attrib["dapple:track-occupancy"] = True
 
-        # TODO: More layout logic from the `layout_plot!` function.
-        # Maybe we name this function `_arrange_children` and have the
-        # real layout method call it.
+        return self._arrange_children(grid, i_focus, j_focus, width, height)
+
+    def _arrange_children(self, grid: np.ndarray, i_focus: int, j_focus: int, width: AbsLengths, height: AbsLengths) -> Element:
+        # This should actually be condsiderably simpler because we are not doing the whole thing with multiple alternatives per
+        # grid entry.
+
+        nrows, ncols = grid.shape
+
+        def cell_abs_bounds(cell: Optional[Element]):
+            if cell is None:
+                return (0.0, 0.0)
+            else:
+                return abs_bounds(cell)
+
+        bounds = np.vectorize(cell_abs_bounds)(grid)
+        widths = np.vectorize(lambda bound: bound[0])(bounds)
+        heights = np.vectorize(lambda bound: bound[1])(bounds)
+
+        row_heights = heights.max(axis=1)
+        col_widths = widths.max(axis=0)
+
+        total_width = width.scalar_value()
+        total_height = height.scalar_value()
+
+        if row_heights.sum() > total_height and col_widths.sum() > total_width:
+            print("Warning: Insufficient height and width to draw the plot.")
+        elif row_heights.sum() > total_height:
+            print("Warning: Insufficient height to draw the plot.")
+        elif col_widths.sum() > total_width:
+            print("Warning: Insufficient width to draw the plot.")
+
+        focus_height = total_height - row_heights.sum()
+        focus_width = total_width - col_widths.sum()
+
+        root = Element("g")
+        y = 0.0
+        for (i, row_height) in enumerate(row_heights):
+            x = 0.0
+
+            if i == i_focus:
+                vp_height = focus_height
+            else:
+                vp_height = row_heights[i]
+
+            for (j, col_width) in enumerate(col_widths):
+                if grid[i, j] is None:
+                    continue
+
+                if j == j_focus:
+                    vp_width = focus_width
+                else:
+                    vp_width = col_widths[i]
+
+                root.append(viewport(
+                    [grid[i,j]],
+                    x=mm(x),
+                    y=mm(y),
+                    width=mm(vp_width),
+                    height=mm(vp_height),
+                ))
+
+        return root
 
 
     def svg(self, width: Union[AbsLengths, Number], height: Union[AbsLengths, Number], output: Optional[Union[str, TextIO]]=None, clip: bool=False):
