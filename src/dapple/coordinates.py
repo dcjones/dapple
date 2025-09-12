@@ -213,7 +213,7 @@ def _ctx_len_type_str(typ: CtxLenType) -> str:
 @dataclass
 class CtxLengths(Lengths):
     """
-    Representation of lengths in unresolved contrived coordinate system.
+    Representation of lengths in unresolved contrived eoordinate system.
     """
     values: NDArray[np.float64]
     unit: str
@@ -581,3 +581,74 @@ class CoordBounds:
                 self.bounds[unit] = (lower.min(l), upper.max(l))
             else:
                 self.bounds[unit] = (l, l)
+
+    def solve(self) -> CoordSet:
+        vw_sym, vh_sym, scale_sym, translate_sym = sympy.symbols("vw vh scale translate")
+
+        coordset = dict()
+
+        for unit, (lower, upper) in self.bounds.items():
+            if unit == "x":
+                ref_unit = vw_sym
+            elif unit == "y":
+                ref_unit = vh_sym
+            else:
+                continue
+
+            lower_expr = self._rewrite_sympy_expression(scale_sym, translate_sym, lower.to_sympy(), unit)
+            upper_expr = self._rewrite_sympy_expression(scale_sym, translate_sym, upper.to_sympy(), unit)
+
+            solution = sympy.solve(
+                [lower_expr, upper_expr - ref_unit],
+                [scale_sym, translate_sym]
+            )
+
+            coordset[unit] = CoordTransform(
+                sympy_to_length(solution[scale_sym]),
+                sympy_to_length(solution[translate_sym]))
+
+        return coordset
+
+
+    def _rewrite_sympy_expression(self, scale_sym: sympy.Symbol, translate_sym: sympy.Symbol, expr: sympy.Expr, unit: str):
+        """
+        Substitute `a*unit` with `a*scale + translate` in preparation for
+        solving the coordinate transform.
+        """
+
+        unit_sym = sympy.Symbol(unit)
+        c = sympy.Wild("c", properties=[lambda k: k.is_number], exclude=[sympy.Number(1)])
+        expr_rewrite = expr.replace(c * unit_sym, lambda c: c*scale_sym + translate_sym) \
+            .replace(unit_sym, scale_sym + translate_sym)
+
+        return expr_rewrite
+
+
+def sympy_to_length(expr: sympy.Basic) -> Lengths:
+    """
+    Convert a small subset of sympy expressions to a Length expression.
+    """
+
+    if isinstance(expr, sympy.Symbol):
+        if expr.name == "mm":
+            return mm(1.0)
+        else:
+            return ctxlengths(1.0, expr.name, CtxLenType.Vec)
+    if isinstance(expr, sympy.Add):
+        return sympy_to_length(expr.args[0]) + sympy_to_length(expr.args[1])
+    elif isinstance(expr, sympy.Mul):
+        a, b = expr.args
+        if a.is_number and not b.is_number:
+            assert isinstance(a, sympy.Number)
+            return float(a) * sympy_to_length(b)
+        elif not a.is_number and b.is_number:
+            assert isinstance(b, sympy.Number)
+            return float(b) * sympy_to_length(a)
+        else:
+            raise Exception("Length expression only support scalar multiply")
+    elif isinstance(expr, sympy.Min):
+        return sympy_to_length(expr.args[0]).min(sympy_to_length(expr.args[1]))
+    elif isinstance(expr, sympy.Max):
+        return sympy_to_length(expr.args[0]).max(sympy_to_length(expr.args[1]))
+    else:
+        raise ValueError(f"Unsupported expression type: {type(expr)}")

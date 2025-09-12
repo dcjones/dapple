@@ -16,7 +16,7 @@ from .scales import UnscaledValues, UnscaledExpr, ScaleSet, ScaleContinuousColor
 from .export import svg_to_png, svg_to_pdf, ExportError
 from .defaults import DEFAULTS
 from .scales import Scale
-from .coordinates import Resolvable
+from .coordinates import Resolvable, CoordBounds
 from .elements import ResolvableElement, traverse_attributes, rewrite_attributes, abs_bounds, viewport
 
 
@@ -189,15 +189,21 @@ class Plot(ResolvableElement):
         root = self.layout(els, width, height)
 
         # Fit coordinates
-        # TODO
+        bounds = CoordBounds()
+        def update_bounds(_attr, expr: Lengths):
+            bounds.update(expr)
+        traverse_attributes(root, update_bounds, Lengths)
+
+        # TODO: Ok here we need to convert to a sympy expression and solve somehow.
 
         # Resolve children
         # TODO
 
         # TODO: assert there are no "dapple:" attributes or tags
+        # (Maybe we have to strip these?)
         pass
 
-    def layout(self, width: AbsLengths, height: AbsLengths) -> Element:
+    def layout(self, els: list[Element], width: AbsLengths, height: AbsLengths) -> Element:
         """
         Arrange child elements in a grid, based on the "dapple:position" attribute.
         """
@@ -237,7 +243,7 @@ class Plot(ResolvableElement):
         next_top = i_focus - 1
         next_bottom = i_focus + 1
 
-        for child in self:
+        for child in els:
             position = child.attrib.get("dapple:position", Position.Default)
             assert isinstance(position, Position)
 
@@ -282,9 +288,6 @@ class Plot(ResolvableElement):
         return self._arrange_children(grid, i_focus, j_focus, width, height)
 
     def _arrange_children(self, grid: np.ndarray, i_focus: int, j_focus: int, width: AbsLengths, height: AbsLengths) -> Element:
-        # This should actually be condsiderably simpler because we are not doing the whole thing with multiple alternatives per
-        # grid entry.
-
         nrows, ncols = grid.shape
 
         def cell_abs_bounds(cell: Optional[Element]):
