@@ -1,6 +1,6 @@
 
 from xml.etree.ElementTree import Element
-from .coordinates import CoordTransform, Resolvable, AbsCoordSet, AbsLengths, Lengths, Transform, ResolveContext, resolve, mm, cw, ch, translate
+from .coordinates import CoordTransform, Resolvable, CoordSet, AbsCoordSet, AbsLengths, Lengths, Transform, ResolveContext, resolve, mm, cw, ch, translate
 from .occupancy import Occupancy
 from .colors import Colors
 from . import svg
@@ -156,6 +156,14 @@ class ViewportElement(ResolvableElement):
         }
 
         super().__init__("g", attribs)
+
+    def merge_coords(self, new_coords: CoordSet):
+        if "dapple:coords" not in self.attrib:
+            self.set("dapple:coords", copy(new_coords))
+        else:
+            coords = self.get("dapple:coords")
+            assert isinstance(coords, dict)
+            coords.update(new_coords)
 
 
 def viewport(children: Iterable[Element], x: Lengths=mm(0), y: Lengths=mm(0), width: Optional[Lengths]=None, height: Optional[Lengths]=None) -> ViewportElement:

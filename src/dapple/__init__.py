@@ -17,7 +17,7 @@ from .export import svg_to_png, svg_to_pdf, ExportError
 from .defaults import DEFAULTS
 from .scales import Scale
 from .coordinates import Resolvable, CoordBounds
-from .elements import ResolvableElement, traverse_attributes, rewrite_attributes, abs_bounds, viewport
+from .elements import ResolvableElement, ViewportElement, traverse_attributes, rewrite_attributes, abs_bounds, viewport
 
 
 class Position(Enum):
@@ -193,11 +193,14 @@ class Plot(ResolvableElement):
         def update_bounds(_attr, expr: Lengths):
             bounds.update(expr)
         traverse_attributes(root, update_bounds, Lengths)
+        coordset = bounds.solve()
 
-        # TODO: Ok here we need to convert to a sympy expression and solve somehow.
+        for child in root:
+            assert isinstance(child, ViewportElement)
+            child.merge_coords(coordset)
 
         # Resolve children
-        # TODO
+        #   - run resolve on the root node
 
         # TODO: assert there are no "dapple:" attributes or tags
         # (Maybe we have to strip these?)
@@ -294,11 +297,10 @@ class Plot(ResolvableElement):
             if cell is None:
                 return (0.0, 0.0)
             else:
-                return abs_bounds(cell)
+                l, u = abs_bounds(cell)
+                return (l.scalar_value(), u.scalar_value())
 
-        bounds = np.vectorize(cell_abs_bounds)(grid)
-        widths = np.vectorize(lambda bound: bound[0])(bounds)
-        heights = np.vectorize(lambda bound: bound[1])(bounds)
+        widths, heights = np.vectorize(cell_abs_bounds)(grid)
 
         row_heights = heights.max(axis=1)
         col_widths = widths.max(axis=0)

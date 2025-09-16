@@ -158,6 +158,9 @@ class AbsLengths(Lengths):
         else:
             return f"{self.values}mm"
 
+    def __rmul__(self, other: float) -> AbsLengths:
+        return AbsLengths(other * self.values)
+
     def to_sympy(self) -> sympy.Expr:
         self.assert_scalar()
         return self.values[0] * sympy.Symbol("mm", positive=True)
@@ -255,9 +258,17 @@ class CtxLengths(Lengths):
         else:
             return f"{self.values}{unit_str}"
 
+    def __rmul__(self, other: float) -> CtxLengths:
+        return CtxLengths(other * self.values, self.unit, self.typ)
+
     def to_sympy(self) -> sympy.Expr:
         self.assert_scalar()
-        return self.values[0] * sympy.Symbol(self.unit, positive=True)
+        if self.typ == CtxLenType.Vec:
+            sym = sympy.Symbol(self.unit + "_v", positive=True)
+        else:
+            sym = sympy.Symbol(self.unit, positive=True)
+
+        return self.values[0] * sym
 
     def units(self) -> set[str]:
         return set([self.unit])
@@ -616,6 +627,8 @@ class CoordBounds:
         solving the coordinate transform.
         """
 
+        # TODO: We should rewrite vector versus positions differently (that should decide wither `translate is included)
+
         unit_sym = sympy.Symbol(unit)
         c = sympy.Wild("c", properties=[lambda k: k.is_number], exclude=[sympy.Number(1)])
         expr_rewrite = expr.replace(c * unit_sym, lambda c: c*scale_sym + translate_sym) \
@@ -633,7 +646,10 @@ def sympy_to_length(expr: sympy.Basic) -> Lengths:
         if expr.name == "mm":
             return mm(1.0)
         else:
-            return ctxlengths(1.0, expr.name, CtxLenType.Vec)
+            if expr.name.endswith("_v"):
+                return ctxlengths(1.0, expr.name, CtxLenType.Vec)
+            else:
+                return ctxlengths(1.0, expr.name.rstrip("_v"), CtxLenType.Pos)
     if isinstance(expr, sympy.Add):
         return sympy_to_length(expr.args[0]) + sympy_to_length(expr.args[1])
     elif isinstance(expr, sympy.Mul):

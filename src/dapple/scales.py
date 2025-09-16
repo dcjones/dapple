@@ -360,9 +360,9 @@ class TickCoverage(Enum):
         value = value.lower()
         if value == "flexible":
             return cls.Flexible
-        elif value == "strictsub":
+        elif value == "strictsub" or value == "sub":
             return cls.StrictSub
-        elif value == "strictsuper":
+        elif value == "strictsuper" or value == "super":
             return cls.StrictSuper
         else:
             raise ValueError(f"Invalid tick coverage: {value}")
