@@ -7,7 +7,7 @@ from enum import Enum
 import numpy as np
 import sys
 
-from .coordinates import Resolvable, AbsCoordSet, AbsCoordTransform, Lengths, AbsLengths, ResolveContext, Lengths, abslengths
+from .coordinates import Resolvable, Serializable, AbsCoordSet, AbsCoordTransform, Lengths, AbsLengths, ResolveContext, Lengths, abslengths
 from .coordinates import mm, cm, pt, inch
 from .coordinates import cx, cxv, cy, cyv, cw, cwv, ch, chv
 from .occupancy import Occupancy
@@ -17,7 +17,9 @@ from .export import svg_to_png, svg_to_pdf, ExportError
 from .defaults import DEFAULTS
 from .scales import Scale
 from .coordinates import Resolvable, CoordBounds
-from .elements import ResolvableElement, ViewportElement, traverse_attributes, rewrite_attributes, abs_bounds, viewport
+from .elements import ResolvableElement, ViewportElement, \
+    delete_attributes_inplace, traverse_attributes, rewrite_attributes, \
+    rewrite_attributes_inplace, abs_bounds, viewport
 
 
 class Position(Enum):
@@ -200,13 +202,18 @@ class Plot(ResolvableElement):
             child.merge_coords(coordset)
 
         # Resolve children
-        #   - run resolve on the root node
+        svg_root = root.resolve(ctx)
 
-        # TODO: assert there are no "dapple:" attributes or tags
-        # (Maybe we have to strip these?)
-        pass
+        # Strip any lingering dapple-specific attributes
+        delete_attributes_inplace(svg_root, lambda k, v: k.startswith("dapple:"))
 
-    def layout(self, els: list[Element], width: AbsLengths, height: AbsLengths) -> Element:
+        # Convert serializable attributes to strings
+        rewrite_attributes_inplace(svg_root, lambda k, v: v.serialize(), Serializable)
+        delete_attributes_inplace(svg_root, lambda k, v: v is None)
+
+        return svg_root
+
+    def layout(self, els: list[Element], width: AbsLengths, height: AbsLengths) -> ResolvableElement:
         """
         Arrange child elements in a grid, based on the "dapple:position" attribute.
         """
@@ -290,7 +297,7 @@ class Plot(ResolvableElement):
 
         return self._arrange_children(grid, i_focus, j_focus, width, height)
 
-    def _arrange_children(self, grid: np.ndarray, i_focus: int, j_focus: int, width: AbsLengths, height: AbsLengths) -> Element:
+    def _arrange_children(self, grid: np.ndarray, i_focus: int, j_focus: int, width: AbsLengths, height: AbsLengths) -> ResolvableElement:
         nrows, ncols = grid.shape
 
         def cell_abs_bounds(cell: Optional[Element]):
@@ -318,7 +325,7 @@ class Plot(ResolvableElement):
         focus_height = total_height - row_heights.sum()
         focus_width = total_width - col_widths.sum()
 
-        root = Element("g")
+        root = ResolvableElement("g")
         y = 0.0
         for (i, row_height) in enumerate(row_heights):
             x = 0.0
@@ -376,8 +383,10 @@ class Plot(ResolvableElement):
         assert isinstance(resolved_plot, Element)
 
         svg_root = Element("svg")
-        svg_root.set("width", str(width.scalar_value()))
-        svg_root.set("height", str(height.scalar_value()))
+        width_value = width.scalar_value()
+        height_value = height.scalar_value()
+        svg_root.set("width", f"{width_value:.3f}mm")
+        svg_root.set("height", f"{height_value:.3f}mm")
         svg_root.set("xmlns", "http://www.w3.org/2000/svg")
         svg_root.append(resolved_plot)
 

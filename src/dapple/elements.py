@@ -8,6 +8,18 @@ from typing import Any, Collection, Callable, Optional, Iterable
 from itertools import cycle
 from functools import singledispatch
 from copy import copy
+from abc import ABC, abstractmethod
+
+
+def delete_attributes_inplace(el: Element, predicate: Callable[[str, Any], bool]):
+    """
+    Delete attributes that match a particular predicate.
+    """
+
+    el.attrib = {k: v for k, v in el.attrib.items() if not predicate(k, v)}
+
+    for child in el:
+        delete_attributes_inplace(child, predicate)
 
 
 def traverse_attributes(el: Element, visitor: Callable[[str, Any], None], filter_type: Optional[type]):
@@ -23,7 +35,22 @@ def traverse_attributes(el: Element, visitor: Callable[[str, Any], None], filter
         traverse_attributes(child, visitor, filter_type)
 
 
-def rewrite_attributes(el: Element, visitor: Callable[[str, Any], Any], filter_type: Optional[type]):
+def rewrite_attributes_inplace(el: Element, visitor: Callable[[str, Any], Any], filter_type: Optional[type]=None):
+    """
+    Rewrite an element tree by applying a function to every elements attribute (optionally, only of a particular type)
+    """
+
+    for attr, value in el.attrib.items():
+        if filter_type is None or isinstance(value, filter_type):
+            el.attrib[attr] = visitor(attr, value)
+        else:
+            el.attrib[attr] = value
+
+    for child in el:
+        rewrite_attributes_inplace(child, visitor, filter_type)
+
+
+def rewrite_attributes(el: Element, visitor: Callable[[str, Any], Any], filter_type: Optional[type]=None):
     """
     Rewrite an element tree by applying a function to every elements attribute (optionally, only of a particular type)
     """
@@ -152,6 +179,9 @@ class ViewportElement(ResolvableElement):
                 "vw": CoordTransform(width, mm(0)),
                 "vh": CoordTransform(height, mm(0)),
             },
+
+
+            # TODO: Ahhh, this has to be converted to as SVG transform string
             "transform": translate(x, y)
         }
 

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import singledispatch
 from numpy.typing import NDArray
-from typing import Any, TypeAlias, Tuple, TYPE_CHECKING
+from typing import Any, TypeAlias, Tuple, Optional, TYPE_CHECKING
 import numpy as np
 import sympy
 
@@ -14,6 +14,17 @@ if TYPE_CHECKING:
     from .occupancy import Occupancy
     from .scales import ScaleSet
 
+class Serializable(ABC):
+    """
+    Simple serialization interface for types that need to be converted to
+    strings during SVG serialization.
+    """
+    @abstractmethod
+    def serialize(self) -> Optional[str]:
+        pass
+
+    # Ideally we should be able to delete a attriute by returning None.
+    # That's kind of annoying to support.
 
 @dataclass
 class ResolveContext:
@@ -31,8 +42,8 @@ def resolve(value, ctx):
     return value
 
 @resolve.register(Resolvable)
-def _(arg, coords, occupancy):
-    return arg.resolve(coords, occupancy)
+def _(arg, ctx):
+    return arg.resolve(ctx)
 
 
 class Lengths(Resolvable):
@@ -514,7 +525,7 @@ CoordSet: TypeAlias = dict[str, AbsCoordTransform | CoordTransform]
 
 
 @dataclass
-class AbsTransform:
+class AbsTransform(Serializable):
     """
     Transformation matrix applied to absolute lengths.
 
@@ -535,10 +546,13 @@ class AbsTransform:
     def isidentity(self) -> bool:
         return self.a == 1 and self.b == 0 and self.c == 0 and self.d == 1 and self.tx == 0 and self.ty == 0
 
-    def __str__(self) -> str:
+    def serialize(self) -> Optional[str]:
         # only translation
         if self.a == 1.0 and self.b == 0.0 and self.c == 0.0 and self.d == 1.0:
-            return f"translate({self.tx:.3f}, {self.ty:.3f})"
+            if self.tx == 0.0 and self.ty == 0.0:
+                return None
+            else:
+                return f"translate({self.tx:.3f}, {self.ty:.3f})"
         # only scaling
         elif self.c == 0.0 and self.d == 1.0:
             return f"scale({self.a:.3f}, {self.b:.3f})"
@@ -569,7 +583,7 @@ class Transform(Resolvable):
 
     def resolve(self, ctx: ResolveContext) -> AbsTransform:
         return AbsTransform(
-            self.a, self.b, self.c, self.d, self.tx.resolve(ctx), self.ty.resolve(ctx)
+            self.a, self.b, self.c, self.d, self.tx.resolve(ctx).scalar_value(), self.ty.resolve(ctx).scalar_value()
         )
 
 def translate(x: Lengths, y: Lengths) -> Transform:
