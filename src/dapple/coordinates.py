@@ -141,7 +141,7 @@ class Lengths(Resolvable):
         pass
 
 @dataclass
-class AbsLengths(Lengths):
+class AbsLengths(Lengths, Serializable):
     """
     Representation of lengths in millimeters.
     """
@@ -152,6 +152,10 @@ class AbsLengths(Lengths):
 
     def __len__(self) -> int:
         return len(self.values)
+
+    def serialize(self) -> Optional[str]:
+        v = self.scalar_value()
+        return f"{v:.2f}"
 
     def scalar_value(self) -> float:
         self.assert_scalar()

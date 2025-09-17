@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from .colors import Colors
 from .coordinates import Lengths, CtxLengths, CtxLenType
-from .defaults import DEFAULTS
+from .config import ConfigKey, ChooseTicksParams
 from abc import ABC, abstractmethod
 from cmap import Colormap, ColormapLike
 from collections import namedtuple
@@ -146,6 +146,11 @@ class Scale(ABC):
     to scale them.
     """
 
+    @property
+    @abstractmethod
+    def unit(self) -> str:
+        pass
+
     @abstractmethod
     def fit_values(self, values: UnscaledValues):
         pass
@@ -167,7 +172,7 @@ class ScaleDiscrete(Scale):
     """
     Disecrete scale which can map any collection of (hashable) values onto lengths or colors.
     """
-    unit: str
+    _unit: str
     fixed: bool
     labeler: Callable[[Any], str]
     sort_by: None | Callable[[Any], Any]
@@ -182,7 +187,7 @@ class ScaleDiscrete(Scale):
     def __init__(
             self, unit: str, values: Mapping | Sequence | None = None,
             fixed: bool=False, labeler: Callable[[Any], str] = str, sort_by: None | Callable[[Any], Any] = lambda x: x):
-        self.unit = unit
+        self._unit = unit
         self.fixed = fixed
         self.labeler = labeler
         self.sort_by = sort_by
@@ -211,6 +216,10 @@ class ScaleDiscrete(Scale):
         else:
             raise TypeError("values must be a Mapping or Sequence")
 
+    @property
+    def unit(self) -> str:
+        return self._unit
+
     def fit_values(self, values: UnscaledValues):
         for value in values.values:
             if value not in self._targets:
@@ -228,7 +237,6 @@ class ScaleDiscreteLength(ScaleDiscrete):
     def __init__(
             self, unit: str, values: Mapping | Sequence | None = None,
             fixed: bool=False, labeler: Callable[[Any], str] = str, sort_by: None | Callable[[Any], Any] = lambda x: x):
-        self.unit = unit
         super().__init__(unit, values, fixed, labeler, sort_by)
 
     def finalize(self):
@@ -276,10 +284,13 @@ def ydiscrete(*args, **kwargs) -> ScaleDiscreteLength:
 
 class ScaleDiscreteColor(ScaleDiscrete):
     def __init__(
-            self, unit: str, colormap: ColormapLike, values: Mapping | Sequence | None = None,
+            self, unit: str,
+            colormap: ColormapLike | ConfigKey=ConfigKey("discrete_cmap"),
+            values: Mapping | Sequence | None = None,
             fixed: bool=False, labeler: Callable[[Any], str] = str, sort_by: None | Callable[[Any], Any] = lambda x: x):
-
-        self.colormap = Colormap(colormap)
+        if not isinstance(colormap, ConfigKey):
+            colormap = Colormap(colormap)
+        self.colormap = colormap
         super().__init__(unit, values, fixed, labeler, sort_by)
 
     def finalize(self):
@@ -311,6 +322,7 @@ class ScaleDiscreteColor(ScaleDiscrete):
         # TODO: do we want this to always contain 0 and 1? Do the colormaps wrap around?
         self.targets -= self.targets.min()
         self.targets /= self.targets.max()
+        assert isinstance(self.colormap, Colormap)
         self.targets = self.colormap(self.targets)
         self.labels = np.array(labels)
 
@@ -329,26 +341,6 @@ TickStep = namedtuple("TickStep", ["tick_step", "subtick_step", "niceness"])
 TICK_STEP_OPTIONS = [
     TickStep(1.0, 0.5, 1.0), TickStep(5.0, 1.0, 0.9), TickStep(2.0, 1.0, 0.7), TickStep(2.5, 0.5, 0.5), TickStep(3.0, 1.0, 0.2)
 ]
-
-@dataclass
-class ChooseTicksParams:
-    k_min: int
-    k_max: int
-    k_ideal: int
-    granularity_weight: float
-    simplicity_weight: float
-    coverage_weight: float
-    niceness_weight: float
-
-DEFAULT_CHOOSE_TICKS_PARAMS = ChooseTicksParams(
-    k_min=2,
-    k_max=10,
-    k_ideal=5,
-    granularity_weight=1/4,
-    simplicity_weight=1/6,
-    coverage_weight=1/2,
-    niceness_weight=1/4,
-)
 
 class TickCoverage(Enum):
     Flexible=1
@@ -387,21 +379,24 @@ def _label_numbers(xs: np.ndarray) -> NDArray[np.str_]:
 #  - Fixed tick spans
 
 class ScaleContinuous(Scale):
-    unit: str
+    _unit: str
     min: Optional[np.float64]
     max: Optional[np.float64]
-    tick_coverage: TickCoverage
-    choose_ticks_params: ChooseTicksParams
+    tick_coverage: Union[TickCoverage, ConfigKey]
+    choose_ticks_params: Union[ChooseTicksParams, ConfigKey]
     _ticks: Optional[np.ndarray]
     _subticks: Optional[np.ndarray]
     _tick_labels: Optional[np.ndarray]
     _subtick_labels: Optional[np.ndarray]
 
-    def __init__(self, unit: str, tick_coverage: TickCoverage, choose_tick_params: ChooseTicksParams = DEFAULT_CHOOSE_TICKS_PARAMS):
+    def __init__(
+            self, unit: str,
+            tick_coverage: Union[TickCoverage, ConfigKey]=ConfigKey("tick_coverage"),
+            choose_tick_params: Union[ChooseTicksParams, ConfigKey]=ConfigKey("tick_params")):
         # TODO: We should be able to pass in min and max
         # and also have a `fixed` argument like discrete scales.
 
-        self.unit = unit
+        self._unit = unit
         self.min = None
         self.max = None
         self.tick_coverage = tick_coverage
@@ -416,6 +411,10 @@ class ScaleContinuous(Scale):
             return np.float64(value)
         except ValueError:
             raise ValueError(f"Cannot use continuous scale for unit '{self.unit}' with non-numerical value: {value}")
+
+    @property
+    def unit(self) -> str:
+        return self._unit
 
     def fit_values(self, values: UnscaledValues):
         for value in values.values:
@@ -456,6 +455,7 @@ class ScaleContinuous(Scale):
             t1 = round(self.min + 1.0)
             return np.array([t0, t1]), np.array([], dtype=float)
 
+        assert isinstance(self.choose_ticks_params, ChooseTicksParams)
         params = self.choose_ticks_params
         CONSTRAINT_PENALTY = 10000.0
         high_score = -np.inf
@@ -534,16 +534,23 @@ class ScaleContinuous(Scale):
         return ticks, subticks
 
 class ScaleContinuousColor(ScaleContinuous):
+    colormap: Union[Colormap, ConfigKey]
+
     def __init__(
-            self, unit: str, colormap: ColormapLike,
-            tick_coverage: TickCoverage=TickCoverage.from_str(DEFAULTS["tick_coverage"]),
-            choose_tick_params: ChooseTicksParams = DEFAULT_CHOOSE_TICKS_PARAMS):
-        self.colormap = Colormap(colormap)
+            self, unit: str,
+            colormap: Union[ColormapLike, ConfigKey]=ConfigKey("continuous_cmap"),
+            tick_coverage: Union[TickCoverage, ConfigKey]=ConfigKey("tick_coverage"),
+            choose_tick_params: Union[ChooseTicksParams, ConfigKey]=ConfigKey("tick_params")):
+        if not isinstance(colormap, ConfigKey):
+            colormap = Colormap(colormap)
+        self.colormap = colormap
         super().__init__(unit, tick_coverage, choose_tick_params)
 
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
         if self.min is None or self.max is None:
             raise ValueError("ScaleContinuousColor requires min and max values")
+
+        assert isinstance(self.colormap, Colormap)
 
         span = self.max - self.min
         scaled_values = self.colormap(np.fromiter(
@@ -560,8 +567,8 @@ def colorcontinuous(*args, **kwargs) -> ScaleContinuousColor:
 class ScaleContinuousLength(ScaleContinuous):
     def __init__(
             self, unit: str,
-            tick_coverage: TickCoverage=TickCoverage.from_str(DEFAULTS["tick_coverage"]),
-            choose_tick_params: ChooseTicksParams = DEFAULT_CHOOSE_TICKS_PARAMS):
+            tick_coverage: Union[TickCoverage, ConfigKey]=ConfigKey("tick_coverage"),
+            choose_tick_params: Union[ChooseTicksParams, ConfigKey]=ConfigKey("tick_params")):
         super().__init__(unit, tick_coverage, choose_tick_params)
 
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:

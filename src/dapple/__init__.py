@@ -17,6 +17,7 @@ from .export import svg_to_png, svg_to_pdf, ExportError
 from .defaults import DEFAULTS
 from .scales import Scale
 from .coordinates import Resolvable, CoordBounds
+from .config import Config, ConfigKey
 from .elements import ResolvableElement, ViewportElement, \
     delete_attributes_inplace, traverse_attributes, rewrite_attributes, \
     rewrite_attributes_inplace, abs_bounds, viewport
@@ -145,7 +146,13 @@ class Plot(ResolvableElement):
         recursively calling resolve on the rest of the tree.
         """
 
+        config = self.get("dapple:config")
+        if config is None:
+            config = Config()
+        assert isinstance(config, Config)
+
         # Set up default scales
+        # TODO: Probably need to do a deep copy here to avoid modifying the underlying plot on resolve
         scaleset = self.attrib.get("dapple:scaleset", ScaleSet())
         assert isinstance(scaleset, dict)
 
@@ -164,9 +171,9 @@ class Plot(ResolvableElement):
 
             if unit == "color":
                 if numeric:
-                    scaleset[unit] = ScaleContinuousColor(unit, colormap=DEFAULTS["continuous_cmap"])
+                    scaleset[unit] = ScaleContinuousColor(unit)
                 else:
-                    scaleset[unit] = ScaleDiscreteColor(unit, colormap=DEFAULTS["discrete_cmap"])
+                    scaleset[unit] = ScaleDiscreteColor(unit)
             elif unit == "shape":
                 raise Exception("shape scale not yet implemented")
             else:
@@ -174,6 +181,7 @@ class Plot(ResolvableElement):
                     scaleset[unit] = ScaleContinuousLength(unit)
                 else:
                     scaleset[unit] = ScaleDiscreteLength(unit)
+        config.replace_keys(scaleset)
 
         # Fit and apply scales
         def fit_expr(_attr, expr: UnscaledExpr):
@@ -209,6 +217,7 @@ class Plot(ResolvableElement):
 
         # Convert serializable attributes to strings
         rewrite_attributes_inplace(svg_root, lambda k, v: v.serialize(), Serializable)
+        rewrite_attributes_inplace(svg_root, lambda k, v: config.get(v), ConfigKey)
         delete_attributes_inplace(svg_root, lambda k, v: v is None)
 
         return svg_root
@@ -483,8 +492,14 @@ def plot(*args, **kwargs) -> Plot:
         if isinstance(arg, Element):
             pl.append(arg)
         elif isinstance(arg, Scale):
-            # TODO: I guess we keep scales in an attribute?
-            pass
+            if pl.get("dapple:scaleset") is None:
+                pl.set("dapple:scaleset", arg.unit, arg) # type: ignore
+            else:
+                scaleset = pl.get("dapple:scaleset")
+                assert isinstance(scaleset, dict)
+                scaleset[arg.unit] = arg
+        elif isinstance(arg, Config):
+            pl.set("dapple:config", arg) # type: ignore
         else:
             raise TypeError(f"Unsupported type for plot argument: {type(arg)}")
 

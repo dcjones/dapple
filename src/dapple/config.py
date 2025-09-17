@@ -1,0 +1,65 @@
+
+from dataclasses import dataclass, field
+from typing import Any
+
+@dataclass
+class ConfigKey:
+    """
+    Reprent a value that should be looked up in the a `Config`
+    instance when the plot is resolved.
+    """
+    key: str
+
+
+@dataclass
+class ChooseTicksParams:
+    k_min: int
+    k_max: int
+    k_ideal: int
+    granularity_weight: float
+    simplicity_weight: float
+    coverage_weight: float
+    niceness_weight: float
+
+@dataclass
+class Config:
+    discrete_cmap: str = "colorcet_c1"
+    continuous_cmap: str = "colorcet:cet_l20"
+    tick_coverage: str = "sub"
+    tick_params: ChooseTicksParams = field(default_factory=lambda: ChooseTicksParams(
+        k_min=2,
+        k_max=10,
+        k_ideal=5,
+        granularity_weight=1/4,
+        simplicity_weight=1/6,
+        coverage_weight=1/2,
+        niceness_weight=1/4,
+    ))
+
+    def get(self, key: str) -> Any:
+        return getattr(self, key)
+
+    def replace_keys(self, obj: object):
+        """
+        General puprose method to replace ConfigKey fields in any object with
+        their associated value in the Config.
+        """
+
+        if isinstance(obj, ConfigKey):
+            return self.get(obj.key)
+        elif hasattr(obj, '__dict__'):
+            for attr_name, attr_value in obj.__dict__.items():
+                if isinstance(attr_value, ConfigKey):
+                    setattr(obj, attr_name, self.get(attr_value.key))
+                else:
+                    self.replace_keys(attr_value)
+        elif isinstance(obj, (list, tuple)):
+            for item in obj:
+                self.replace_keys(item)
+        elif isinstance(obj, dict):
+            for key, value in obj.items():
+                if isinstance(value, ConfigKey):
+                    obj[key] = self.get(value.key)
+                else:
+                    self.replace_keys(value)
+        return obj
