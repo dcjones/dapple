@@ -1,6 +1,8 @@
 
 from dataclasses import dataclass, field
 from typing import Any
+from .colors import Colors, color
+from .coordinates import AbsLengths, mm
 
 @dataclass
 class ConfigKey:
@@ -23,6 +25,8 @@ class ChooseTicksParams:
 
 @dataclass
 class Config:
+    pointsize: AbsLengths=field(default_factory=lambda: mm(0.4))
+    pointcolor: Colors=field(default_factory=lambda: color("#333333"))
     discrete_cmap: str = "colorcet_c1"
     continuous_cmap: str = "colorcet:cet_l20"
     tick_coverage: str = "sub"
@@ -36,8 +40,8 @@ class Config:
         niceness_weight=1/4,
     ))
 
-    def get(self, key: str) -> Any:
-        return getattr(self, key)
+    def get(self, key: ConfigKey) -> Any:
+        return getattr(self, key.key)
 
     def replace_keys(self, obj: object):
         """
@@ -46,11 +50,11 @@ class Config:
         """
 
         if isinstance(obj, ConfigKey):
-            return self.get(obj.key)
+            return self.get(obj)
         elif hasattr(obj, '__dict__'):
             for attr_name, attr_value in obj.__dict__.items():
                 if isinstance(attr_value, ConfigKey):
-                    setattr(obj, attr_name, self.get(attr_value.key))
+                    setattr(obj, attr_name, self.get(attr_value))
                 else:
                     self.replace_keys(attr_value)
         elif isinstance(obj, (list, tuple)):
@@ -59,7 +63,7 @@ class Config:
         elif isinstance(obj, dict):
             for key, value in obj.items():
                 if isinstance(value, ConfigKey):
-                    obj[key] = self.get(value.key)
+                    obj[key] = self.get(value)
                 else:
                     self.replace_keys(value)
         return obj

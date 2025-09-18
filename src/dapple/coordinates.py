@@ -41,6 +41,10 @@ class Resolvable(ABC):
 def resolve(value, ctx):
     return value
 
+@resolve.register(dict)
+def _(arg, ctx) -> Any:
+    return {k: resolve(v, ctx) for k, v in arg.items()}
+
 @resolve.register(Resolvable)
 def _(arg, ctx):
     return arg.resolve(ctx)
@@ -73,14 +77,19 @@ class Lengths(Resolvable):
     def __abs__(self) -> Lengths:
         return LengthsAbsOp(self)
 
-    def min(self, other: Lengths) -> Lengths:
+    def min(self, other: Optional[Lengths]=None) -> Lengths:
+        if other is None:
+            if isinstance(self, (AbsLengths, CtxLengths)):
+                return self.unmin()
+            else:
+                return LengthsUnMinOp(self)
+
         # simplification rules:
         # min(au, bu) = min(a, b)u (u is absolute)
         if isinstance(self, AbsLengths) and isinstance(other, AbsLengths):
             return abslengths(min(self.values.min(), other.values.min()))
         # min(au, bu) = min(a, b)u (u is contextual)
         if isinstance(self, CtxLengths) and isinstance(other, CtxLengths) and self.unit == other.unit and self.typ == other.typ:
-            # TODO: Ok, what do I do with position versus vector?
             return ctxlengths(min(self.values.min(), other.values.min()), self.unit, self.typ)
         # min(α + γ, β + γ) = min(α, β) + γ
         if isinstance(self, LengthsAddOp) and isinstance(other, LengthsAddOp):
@@ -101,14 +110,19 @@ class Lengths(Resolvable):
 
         return LengthsMinOp(self, other)
 
-    def max(self, other: Lengths) -> Lengths:
+    def max(self, other: Optional[Lengths]=None) -> Lengths:
+        if other is None:
+            if isinstance(self, (AbsLengths, CtxLengths)):
+                return self.unmax()
+            else:
+                return LengthsUnMaxOp(self)
+
         # simplification rules:
         # max(au, bu) = max(a, b)u (u is absolute)
         if isinstance(self, AbsLengths) and isinstance(other, AbsLengths):
             return abslengths(max(self.values.max(), other.values.max()))
         # max(au, bu) = max(a, b)u (u is contextual)
         if isinstance(self, CtxLengths) and isinstance(other, CtxLengths) and self.unit == other.unit and self.typ == other.typ:
-            # TODO: Ok, what do I do with position versus vector?
             return ctxlengths(max(self.values.max(), other.values.max()), self.unit, self.typ)
         # max(α + γ, β + γ) = max(α, β) + γ
         if isinstance(self, LengthsAddOp) and isinstance(other, LengthsAddOp):
@@ -152,6 +166,26 @@ class AbsLengths(Lengths, Serializable):
 
     def __len__(self) -> int:
         return len(self.values)
+
+    def __iter__(self):
+        for value in self.values:
+            yield AbsLengths(np.array([value]))
+
+    def unmin(self) -> AbsLengths:
+        """
+        Unary minimum.
+        """
+        return AbsLengths(self.values.min(keepdims=True))
+
+    def unmax(self) -> AbsLengths:
+        """
+        Unary maximum.
+        """
+        return AbsLengths(self.values.max(keepdims=True))
+
+    def repeat_scalar(self, n: int) -> 'AbsLengths':
+        self.assert_scalar()
+        return AbsLengths(np.repeat(self.values, n))
 
     def serialize(self) -> Optional[str]:
         v = self.scalar_value()
@@ -240,6 +274,18 @@ class CtxLengths(Lengths):
     def __len__(self) -> int:
         return len(self.values)
 
+    def unmin(self) -> CtxLengths:
+        """
+        Unary minimum.
+        """
+        return CtxLengths(self.values.min(keepdims=True), self.unit, self.typ)
+
+    def unmax(self) -> CtxLengths:
+        """
+        Unary maximum.
+        """
+        return CtxLengths(self.values.max(keepdims=True), self.unit, self.typ)
+
     def assert_scalar(self):
         if len(self.values) != 1:
             raise ValueError(f"Scalar length expected but found {len(self.values)} lengths.")
@@ -320,17 +366,17 @@ def cy(value) -> CtxLengths:
 def cyv(value) -> CtxLengths:
     return ctxlengths(value, "y", CtxLenType.Vec)
 
-def cw(value) -> CtxLengths:
-    return ctxlengths(value, "w", CtxLenType.Pos)
+def vw(value) -> CtxLengths:
+    return ctxlengths(value, "vw", CtxLenType.Pos)
 
-def cwv(value) -> CtxLengths:
-    return ctxlengths(value, "w", CtxLenType.Vec)
+def vwv(value) -> CtxLengths:
+    return ctxlengths(value, "vw", CtxLenType.Vec)
 
-def ch(value) -> CtxLengths:
-    return ctxlengths(value, "h", CtxLenType.Pos)
+def vh(value) -> CtxLengths:
+    return ctxlengths(value, "vh", CtxLenType.Pos)
 
-def chv(value) -> CtxLengths:
-    return ctxlengths(value, "h", CtxLenType.Vec)
+def vhv(value) -> CtxLengths:
+    return ctxlengths(value, "vh", CtxLenType.Vec)
 
 @dataclass
 class LengthsAddOp(Lengths):
@@ -433,6 +479,58 @@ class LengthsAbsOp(Lengths):
 
     def to_sympy(self) -> sympy.Expr:
         return abs(self.a.to_sympy())
+
+    def units(self) -> set[str]:
+        return self.a.units()
+
+@dataclass
+class LengthsUnMinOp(Lengths):
+    a: Lengths
+
+    def __init__(self, a: Lengths):
+        self.a = a
+
+    def __len__(self) -> int:
+        return len(self.a)
+
+    def resolve(self, ctx: ResolveContext) -> AbsLengths:
+        a = self.a.resolve(ctx)
+        return AbsLengths(a.values.min(keepdims=True))
+
+    def __repr__(self) -> str:
+        return f"LengthsUnMinOp({self.a!r})"
+
+    def __str__(self) -> str:
+        return f"unmin({self.a})"
+
+    def to_sympy(self) -> sympy.Expr:
+        raise NotImplementedError("LengthsUnMinOp.to_sympy() is not implemented")
+
+    def units(self) -> set[str]:
+        return self.a.units()
+
+@dataclass
+class LengthsUnMaxOp(Lengths):
+    a: Lengths
+
+    def __init__(self, a: Lengths):
+        self.a = a
+
+    def __len__(self) -> int:
+        return len(self.a)
+
+    def resolve(self, ctx: ResolveContext) -> AbsLengths:
+        a = self.a.resolve(ctx)
+        return AbsLengths(a.values.max(keepdims=True))
+
+    def __repr__(self) -> str:
+        return f"LengthsUnMaxOp({self.a!r})"
+
+    def __str__(self) -> str:
+        return f"unmax({self.a})"
+
+    def to_sympy(self) -> sympy.Expr:
+        raise NotImplementedError("LengthsUnMaxOp.to_sympy() is not implemented")
 
     def units(self) -> set[str]:
         return self.a.units()
@@ -609,7 +707,7 @@ class CoordBounds:
                 lower, upper = self.bounds[unit]
                 self.bounds[unit] = (lower.min(l), upper.max(l))
             else:
-                self.bounds[unit] = (l, l)
+                self.bounds[unit] = (l.min(), l.max())
 
     def solve(self) -> CoordSet:
         vw_sym, vh_sym, scale_sym, translate_sym = sympy.symbols("vw vh scale translate")
@@ -647,8 +745,9 @@ class CoordBounds:
 
         # TODO: We should rewrite vector versus positions differently (that should decide wither `translate is included)
 
-        unit_sym = sympy.Symbol(unit)
+        unit_sym = sympy.Symbol(unit, positive=True)
         c = sympy.Wild("c", properties=[lambda k: k.is_number], exclude=[sympy.Number(1)])
+
         expr_rewrite = expr.replace(c * unit_sym, lambda c: c*scale_sym + translate_sym) \
             .replace(unit_sym, scale_sym + translate_sym)
 

@@ -1,14 +1,15 @@
 
 from ..elements import VectorizedElement
-from ..scales import UnscaledValues
+from ..scales import UnscaledValues, length_params, color_params
 from ..coordinates import CtxLenType, mm
 from ..config import ConfigKey
 
-def points(x, y, color):
+def points(x, y, color=ConfigKey("pointcolor")):
     return VectorizedElement(
         "circle", {
-            "cx": UnscaledValues("x", x, CtxLenType.Pos),
-            "cy": UnscaledValues("y", y, CtxLenType.Pos),
+            "cx": length_params("x", x, CtxLenType.Pos),
+            "cy": length_params("y", y, CtxLenType.Pos),
             "r": ConfigKey("pointsize"),
-            "fill": UnscaledValues("color", color)}
+            "fill": color_params("color", color)
+        }
     )

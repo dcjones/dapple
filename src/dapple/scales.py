@@ -84,6 +84,17 @@ class UnscaledValues(UnscaledExpr):
                     return False
             return True
 
+def length_params(unit: str, values: Any, typ: CtxLenType):
+    if isinstance(values, (ConfigKey, Lengths)):
+        return values
+    else:
+        return UnscaledValues(unit, values, typ)
+
+def color_params(unit: str, values: Any):
+    if isinstance(values, (ConfigKey, Colors)):
+        return values
+    else:
+        return UnscaledValues(values, values)
 
 @dataclass
 class UnscaledUnaryOp(UnscaledExpr):

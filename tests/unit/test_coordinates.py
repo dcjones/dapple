@@ -27,10 +27,10 @@ def test_ctx_length_init():
     dplc.cx([1, 2, 3])
     dplc.cy([1, 2, 3])
     dplc.cyv([1, 2, 3])
-    dplc.cw([1, 2, 3])
-    dplc.cwv([1, 2, 3])
-    dplc.ch([1, 2, 3])
-    dplc.chv([1, 2, 3])
+    dplc.vw([1, 2, 3])
+    dplc.vwv([1, 2, 3])
+    dplc.vh([1, 2, 3])
+    dplc.vhv([1, 2, 3])
 
 def test_expression_construction():
     assert dplc.mm(1).scalar_value() == 1

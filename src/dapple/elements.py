@@ -1,11 +1,11 @@
 
 from xml.etree.ElementTree import Element
-from .coordinates import CoordTransform, Resolvable, CoordSet, AbsCoordSet, AbsLengths, Lengths, Transform, ResolveContext, resolve, mm, cw, ch, translate
+from .coordinates import CoordTransform, Resolvable, CoordSet, AbsCoordSet, AbsLengths, Lengths, Transform, ResolveContext, resolve, mm, vw, vh, translate
 from .occupancy import Occupancy
 from .colors import Colors
 from . import svg
 from typing import Any, Collection, Callable, Optional, Iterable
-from itertools import cycle
+from itertools import repeat
 from functools import singledispatch
 from copy import copy
 from abc import ABC, abstractmethod
@@ -101,11 +101,22 @@ class ResolvableElement(Element, Resolvable):
         context on absolute sizes ond occupancy.
         """
 
+        # TODO: "dapple:coords" doesn't get resolved because it's a dict and we don't descend into dicts.
+        # I suppose we should do that here.
+
         attrib = {k: resolve(v, ctx) for (k, v) in self.attrib.items()}
+
+        if "dapple:coords" in attrib:
+            child_coords = copy(ctx.coords)
+            child_coords.update(attrib["dapple:coords"])
+            child_ctx = ResolveContext(child_coords, ctx.scales, ctx.occupancy)
+        else:
+            child_ctx = ctx
+
         el = Element(self.tag, attrib)
 
         for child in self:
-            el.append(resolve(child, ctx))
+            el.append(resolve(child, child_ctx))
 
         return el
 
@@ -121,36 +132,42 @@ class VectorizedElement(ResolvableElement):
     def __init__(self, tag: str, attrib={}, **extra):
         super().__init__(tag, attrib, **extra)
 
-    def resolve(self, ctx: ResolveContext) -> Element:
-        # TODO: Actually, I think we shouldn't expand this when we resolve. Instead
-        # we should do this when we write to xml.
+    def __copy__(self):
+        cpy = type(self).__new__(self.__class__)
+        cpy.tag = self.tag
+        cpy.attrib = copy(self.attrib)
+        return cpy
 
-        g = svg.g()
+    def resolve(self, ctx: ResolveContext) -> Element:
+        root = super().resolve(ctx)
+
+        nels = 1
+        for (key, value) in root.attrib.items():
+            if isinstance(value, (AbsLengths, Colors)):
+                if len(value) > 1:
+                    if nels != len(value):
+                        if nels > 1:
+                            raise Exception("VectorizedElement attribute has inconsistent lengths")
+                        nels = len(value)
 
         keys = []
         value_iters = []
-        veclen = None
-        for (key, value) in self.attrib.items():
+        for (key, value) in root.attrib.items():
             keys.append(key)
-            if isinstance(value, (Lengths, Colors, Collection)):
-                if veclen is None:
-                    veclen = len(value)
+            if isinstance(value, (AbsLengths, Colors)):
+                if len(value) == 1 and nels > 1:
+                    value_iters.append(value.repeat_scalar(nels))
                 else:
-                    assert veclen == len(value), f"VectorizedElement attribute {key} has length {len(value)}, but previous attribute has length {veclen}"
+                    value_iters.append(value)
             else:
-                value_iters.append(cycle(value))
+                value_iters.append(repeat(value, nels))
 
-        if veclen is None:
-            raise ValueError("VectorizedElement must have vector attributes")
+        resolved_children = list(root)
 
-        resolved_children = [
-            resolve(child, ctx)
-            for child in self
-        ]
-
+        g = svg.g()
         for values in zip(*value_iters):
             attrib = {k: v for (k, v) in zip(keys, values)}
-            el = Element(self.tag, attrib)
+            el = Element(root.tag, attrib)
             el.extend(resolved_children)
             g.append(el)
 
@@ -179,13 +196,15 @@ class ViewportElement(ResolvableElement):
                 "vw": CoordTransform(width, mm(0)),
                 "vh": CoordTransform(height, mm(0)),
             },
-
-
-            # TODO: Ahhh, this has to be converted to as SVG transform string
             "transform": translate(x, y)
         }
 
         super().__init__("g", attribs)
+
+    def __copy__(self):
+        cpy = type(self).__new__(self.__class__)
+        cpy.__dict__.update(self.__dict__)
+        return cpy
 
     def merge_coords(self, new_coords: CoordSet):
         if "dapple:coords" not in self.attrib:
@@ -198,9 +217,9 @@ class ViewportElement(ResolvableElement):
 
 def viewport(children: Iterable[Element], x: Lengths=mm(0), y: Lengths=mm(0), width: Optional[Lengths]=None, height: Optional[Lengths]=None) -> ViewportElement:
     if width is None:
-        width = cw(1) - x
+        width = vw(1) - x
     if height is None:
-        height = ch(1) - y
+        height = vh(1) - y
 
     vp = ViewportElement(x, y, width, height)
     for el in children:

@@ -4,19 +4,39 @@ import numpy as np
 from numpy.typing import NDArray
 from functools import singledispatch
 from dataclasses import dataclass
-from typing import Sequence
-
+from typing import Sequence, Optional
+from .coordinates import Serializable
 
 # RGBA encoded colors stored in a [n, 4] array
 @dataclass
-class Colors:
+class Colors(Serializable):
     values: NDArray[np.float64]
+
+    def __len__(self) -> int:
+        return self.values.shape[0]
+
+    def isscalar(self) -> bool:
+        return self.values.shape[0] == 1
+
+    def assert_scalar(self):
+        if not self.isscalar():
+            raise ValueError(f"Scalar color expected but found {len(self)} lengths.")
+
+    def repeat_scalar(self, n: int) -> 'Colors':
+        self.assert_scalar()
+        return Colors(np.tile(self.values, (n, 1)))
+
+    def __iter__(self):
+        for value in self.values:
+            yield Colors(np.array([value]))
+
+    def serialize(self) -> Optional[str]:
+        self.assert_scalar()
+        return Color(self.values.squeeze()).hex
 
 @singledispatch
 def color(value) -> Colors:
     raise NotImplementedError(f"Type {type(value)} can't be converted to colors.")
-
-# TODO: Actually the logic for this may be too tricky for singledispatch
 
 @color.register(list)
 def _(value) -> Colors:

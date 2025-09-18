@@ -9,7 +9,7 @@ import sys
 
 from .coordinates import Resolvable, Serializable, AbsCoordSet, AbsCoordTransform, Lengths, AbsLengths, ResolveContext, Lengths, abslengths
 from .coordinates import mm, cm, pt, inch
-from .coordinates import cx, cxv, cy, cyv, cw, cwv, ch, chv
+from .coordinates import cx, cxv, cy, cyv, vw, vwv, vh, vhv
 from .occupancy import Occupancy
 from .clipboard import copy_svg, ClipboardError
 from .scales import UnscaledValues, UnscaledExpr, ScaleSet, ScaleContinuousColor, ScaleDiscreteColor, ScaleContinuousLength, ScaleDiscreteLength
@@ -93,43 +93,43 @@ class Position(Enum):
             case Position.AboveTopLeft:
                 return mm(0), mm(0)
             case Position.AboveTopRight:
-                return cw(1) - width, mm(0)
+                return vw(1) - width, mm(0)
             case Position.AboveBottomLeft:
-                return mm(0), ch(1) - height
+                return mm(0), vh(1) - height
             case Position.AboveBottomRight:
-                return cw(1) - width, ch(1) - height
+                return vw(1) - width, vh(1) - height
             case Position.BelowTopLeft:
                 return mm(0), mm(0)
             case Position.BelowTopRight:
-                return cw(1) - width, mm(0)
+                return vw(1) - width, mm(0)
             case Position.BelowBottomLeft:
-                return mm(0), ch(1) - height
+                return mm(0), vh(1) - height
             case Position.BelowBottomRight:
-                return cw(1) - width, ch(1) - height
+                return vw(1) - width, vh(1) - height
             case Position.BottomLeft:
                 return mm(0), mm(0)
             case Position.BottomCenter:
-                return cw(0.5) - 0.5*width, mm(0)
+                return vw(0.5) - 0.5*width, mm(0)
             case Position.BottomRight:
-                return cw(1) - width, mm(0)
+                return vw(1) - width, mm(0)
             case Position.TopLeft:
                 return mm(0), mm(0)
             case Position.TopCenter:
-                return cw(0.5) - 0.5*width, mm(0)
+                return vw(0.5) - 0.5*width, mm(0)
             case Position.TopRight:
-                return cw(1) - width, mm(0)
+                return vw(1) - width, mm(0)
             case Position.LeftTop:
                 return mm(0), mm(0)
             case Position.LeftCenter:
-                return mm(0), ch(0.5) - 0.5*height
+                return mm(0), vh(0.5) - 0.5*height
             case Position.LeftBottom:
-                return mm(0), ch(1) - height
+                return mm(0), vh(1) - height
             case Position.RightTop:
                 return mm(0), mm(0)
             case Position.RightCenter:
-                return mm(0), ch(0.5) - 0.5*height
+                return mm(0), vh(0.5) - 0.5*height
             case Position.RightBottom:
-                return mm(0), ch(1) - height
+                return mm(0), vh(1) - height
             case _:
                 raise ValueError(f"Invalid position: {self}")
 
@@ -193,7 +193,13 @@ class Plot(ResolvableElement):
             return expr.accept_scale(scaleset)
 
         # Layout plot
-        els = list(rewrite_attributes(self, scale_expr, UnscaledExpr))
+        els = list(
+            rewrite_attributes(
+                rewrite_attributes(
+                    self, lambda k, v: config.get(v), ConfigKey
+                ),
+                scale_expr, UnscaledExpr))
+
         width = mm(ctx.coords["vw"].scale)
         height = mm(ctx.coords["vh"].scale)
         root = self.layout(els, width, height)
@@ -217,7 +223,6 @@ class Plot(ResolvableElement):
 
         # Convert serializable attributes to strings
         rewrite_attributes_inplace(svg_root, lambda k, v: v.serialize(), Serializable)
-        rewrite_attributes_inplace(svg_root, lambda k, v: config.get(v), ConfigKey)
         delete_attributes_inplace(svg_root, lambda k, v: v is None)
 
         return svg_root
@@ -396,6 +401,7 @@ class Plot(ResolvableElement):
         height_value = height.scalar_value()
         svg_root.set("width", f"{width_value:.3f}mm")
         svg_root.set("height", f"{height_value:.3f}mm")
+        svg_root.set("viewBox", f"0 0 {width_value:.3f} {height_value:.3f}")
         svg_root.set("xmlns", "http://www.w3.org/2000/svg")
         svg_root.append(resolved_plot)
 
