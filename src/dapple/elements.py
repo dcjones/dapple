@@ -35,6 +35,16 @@ def traverse_attributes(el: Element, visitor: Callable[[str, Any], None], filter
         traverse_attributes(child, visitor, filter_type)
 
 
+def traverse_elements(el: Element, visitor: Callable[[Element], None]):
+    """
+    Simple functional tree traversal for element trees.
+    """
+
+    visitor(el)
+    for child in el:
+        traverse_elements(child, visitor)
+
+
 def rewrite_attributes_inplace(el: Element, visitor: Callable[[str, Any], Any], filter_type: Optional[type]=None):
     """
     Rewrite an element tree by applying a function to every elements attribute (optionally, only of a particular type)
@@ -119,6 +129,11 @@ class ResolvableElement(Element, Resolvable):
             el.append(resolve(child, child_ctx))
 
         return el
+
+    def __copy__(self):
+        cpy = type(self).__new__(self.__class__)
+        cpy.__dict__.update(self.__dict__)
+        return cpy
 
     def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
         return mm(0), mm(0)

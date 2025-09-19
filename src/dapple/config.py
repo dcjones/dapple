@@ -39,6 +39,9 @@ class Config:
         coverage_weight=1/2,
         niceness_weight=1/4,
     ))
+    grid_stroke_width: AbsLengths=field(default_factory=lambda: mm(0.2))
+    grid_stroke: Colors=field(default_factory=lambda: color("#dddddd"))
+    grid_stroke_dasharray: str="1"
 
     def get(self, key: ConfigKey) -> Any:
         return getattr(self, key.key)
