@@ -192,6 +192,7 @@ class Plot(ResolvableElement):
                 grid[next_bottom, j_focus] = child
                 next_bottom += 1
 
+
         assert next_left == -1
         assert next_right == ncol
         assert next_top == -1
@@ -234,29 +235,29 @@ class Plot(ResolvableElement):
         root = ResolvableElement("g")
         y = 0.0
         for (i, row_height) in enumerate(row_heights):
-            x = 0.0
-
             if i == i_focus:
                 vp_height = focus_height
             else:
                 vp_height = row_heights[i]
 
+            x = 0.0
             for (j, col_width) in enumerate(col_widths):
-                if grid[i, j] is None:
-                    continue
-
                 if j == j_focus:
                     vp_width = focus_width
                 else:
-                    vp_width = col_widths[i]
+                    vp_width = col_widths[j]
 
-                root.append(viewport(
-                    [grid[i,j]],
-                    x=mm(x),
-                    y=mm(y),
-                    width=mm(vp_width),
-                    height=mm(vp_height),
-                ))
+                if grid[i, j] is not None:
+                    root.append(viewport(
+                        [grid[i, j]],
+                        x=mm(x),
+                        y=mm(y),
+                        width=mm(vp_width),
+                        height=mm(vp_height),
+                    ))
+                x += vp_width
+
+            y += vp_height
 
         return root
 

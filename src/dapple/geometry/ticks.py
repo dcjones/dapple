@@ -15,7 +15,7 @@ class XTicks(ResolvableElement):
             tick_length=ConfigKey("tick_length"),
     ):
         attrib = {
-            "dapple:position": Position.LeftTop,
+            "dapple:position": Position.BottomLeft,
             "stroke": stroke,
             "stroke-width": stroke_width,
             "tick_length": tick_length,
@@ -28,6 +28,8 @@ class XTicks(ResolvableElement):
         x_scale = ctx.scales["x"]
         _x_labels, x_ticks = x_scale.ticks()
         assert isinstance(x_ticks, Lengths)
+
+        print(x_ticks)
 
         # Get resolved tick length from attributes
         tick_length = self.attrib["tick_length"]
@@ -47,8 +49,8 @@ class XTicks(ResolvableElement):
                 "line", {
                     "x1": vw(0),
                     "x2": vw(1),
-                    "y1": tick_length,
-                    "y2": tick_length,
+                    "y1": vh(0),
+                    "y2": vh(0),
                 }
             ))
 
@@ -65,6 +67,12 @@ class XTicks(ResolvableElement):
 
         return g.resolve(ctx)
 
+    def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
+        tick_length = self.attrib["tick_length"]
+        assert isinstance(tick_length, AbsLengths)
+
+        return (mm(0), tick_length)
+
 def xticks(*args, **kwargs):
     return XTicks(*args, **kwargs)
 
@@ -79,7 +87,7 @@ class YTicks(ResolvableElement):
             tick_length=ConfigKey("tick_length"),
     ):
         attrib = {
-            "dapple:position": Position.BottomLeft,
+            "dapple:position": Position.LeftTop,
             "stroke": stroke,
             "stroke-width": stroke_width,
             "tick_length": tick_length,
