@@ -104,7 +104,9 @@ class Plot(ResolvableElement):
 
         for child in root:
             assert isinstance(child, ViewportElement)
-            child.merge_coords(coordset)
+            grandchild = child[0]
+            assert isinstance(grandchild, ResolvableElement)
+            grandchild.merge_coords(coordset)
 
         # Resolve children
         ctx.scales = scaleset
@@ -192,7 +194,6 @@ class Plot(ResolvableElement):
                 grid[next_bottom, j_focus] = child
                 next_bottom += 1
 
-
         assert next_left == -1
         assert next_right == ncol
         assert next_top == -1
@@ -249,7 +250,7 @@ class Plot(ResolvableElement):
 
                 if grid[i, j] is not None:
                     root.append(viewport(
-                        [grid[i, j]],
+                        [viewport([grid[i, j]])],
                         x=mm(x),
                         y=mm(y),
                         width=mm(vp_width),

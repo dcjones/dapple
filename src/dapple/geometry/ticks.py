@@ -29,8 +29,6 @@ class XTicks(ResolvableElement):
         _x_labels, x_ticks = x_scale.ticks()
         assert isinstance(x_ticks, Lengths)
 
-        print(x_ticks)
-
         # Get resolved tick length from attributes
         tick_length = self.attrib["tick_length"]
         if isinstance(tick_length, Resolvable):

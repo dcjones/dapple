@@ -111,9 +111,6 @@ class ResolvableElement(Element, Resolvable):
         context on absolute sizes ond occupancy.
         """
 
-        # TODO: "dapple:coords" doesn't get resolved because it's a dict and we don't descend into dicts.
-        # I suppose we should do that here.
-
         attrib = {k: resolve(v, ctx) for (k, v) in self.attrib.items()}
 
         if "dapple:coords" in attrib:
@@ -137,6 +134,14 @@ class ResolvableElement(Element, Resolvable):
 
     def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
         return mm(0), mm(0)
+
+    def merge_coords(self, new_coords: CoordSet):
+        if "dapple:coords" not in self.attrib:
+            self.set("dapple:coords", copy(new_coords))
+        else:
+            coords = self.get("dapple:coords")
+            assert isinstance(coords, dict)
+            coords.update(new_coords)
 
 
 class VectorizedElement(ResolvableElement):
@@ -220,14 +225,6 @@ class ViewportElement(ResolvableElement):
         cpy = type(self).__new__(self.__class__)
         cpy.__dict__.update(self.__dict__)
         return cpy
-
-    def merge_coords(self, new_coords: CoordSet):
-        if "dapple:coords" not in self.attrib:
-            self.set("dapple:coords", copy(new_coords))
-        else:
-            coords = self.get("dapple:coords")
-            assert isinstance(coords, dict)
-            coords.update(new_coords)
 
 
 def viewport(children: Iterable[Element], x: Lengths=mm(0), y: Lengths=mm(0), width: Optional[Lengths]=None, height: Optional[Lengths]=None) -> ViewportElement:
