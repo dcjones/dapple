@@ -171,6 +171,18 @@ class AbsLengths(Lengths, Serializable):
         for value in self.values:
             yield AbsLengths(np.array([value]))
 
+    def __getitem__(self, index) -> 'AbsLengths':
+        """
+        Get items from values and construct a new AbsLengths.
+        Maintains array structure even for scalar indices.
+        """
+        if isinstance(index, int):
+            # For scalar indices, keep as 1D array with single element
+            return AbsLengths(np.array([self.values[index]]))
+        else:
+            # For slices or other indices, use normal indexing
+            return AbsLengths(self.values[index])
+
     def unmin(self) -> AbsLengths:
         """
         Unary minimum.
@@ -273,6 +285,18 @@ class CtxLengths(Lengths):
 
     def __len__(self) -> int:
         return len(self.values)
+
+    def __getitem__(self, index) -> 'CtxLengths':
+        """
+        Get items from values and construct a new AbsLengths.
+        Maintains array structure even for scalar indices.
+        """
+        if isinstance(index, int):
+            # For scalar indices, keep as 1D array with single element
+            return CtxLengths(np.array([self.values[index]]), self.unit, self.typ)
+        else:
+            # For slices or other indices, use normal indexing
+            return CtxLengths(self.values[index], self.unit, self.typ)
 
     def unmin(self) -> CtxLengths:
         """

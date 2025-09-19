@@ -42,6 +42,9 @@ class Config:
     grid_stroke_width: AbsLengths=field(default_factory=lambda: mm(0.2))
     grid_stroke: Colors=field(default_factory=lambda: color("#dddddd"))
     grid_stroke_dasharray: str="1"
+    tick_stroke_width: AbsLengths=field(default_factory=lambda: mm(0.4))
+    tick_stroke: Colors=field(default_factory=lambda: color("#333333"))
+    tick_length: AbsLengths=field(default_factory=lambda: mm(2.0))
 
     def get(self, key: ConfigKey) -> Any:
         return getattr(self, key.key)

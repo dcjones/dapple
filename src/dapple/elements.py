@@ -102,7 +102,7 @@ class ResolvableElement(Element, Resolvable):
     An XML element that can be resolved (unually into another element).
     """
 
-    def __init__(self, tag: str, attrib={}, **extra):
+    def __init__(self, tag: str, attrib: dict[str, Any]={}, **extra):
         super().__init__(tag, attrib, **extra)
 
     def resolve(self, ctx: ResolveContext) -> Element:
