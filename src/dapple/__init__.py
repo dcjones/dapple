@@ -94,9 +94,14 @@ class Plot(Element):
 
         # Fit coordinates
         bounds = CoordBounds()
+        bounds.update_from_ticks(scaleset)
+
         def update_bounds(_attr, expr: Lengths):
             bounds.update(expr)
         root.traverse_attributes(update_bounds, Lengths)
+
+        # TODO: I also want to fit coords to ticks in scales....
+
         coordset = bounds.solve()
 
         for child in root:

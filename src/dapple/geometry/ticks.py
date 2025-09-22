@@ -3,6 +3,8 @@ from ..coordinates import AbsLengths, Resolvable, ResolveContext, Lengths, vh, v
 from ..layout import Position
 from ..config import ConfigKey
 
+from typing import override
+
 class XTicks(Element):
     """
     Draw tick marks along the bottom margin of the plot for the x-axis.
@@ -21,6 +23,7 @@ class XTicks(Element):
         }
         super().__init__("dapple:xticks", attrib) # type: ignore
 
+    @override
     def resolve(self, ctx: ResolveContext) -> Element:
         assert "x" in ctx.scales
 
@@ -64,6 +67,7 @@ class XTicks(Element):
 
         return g.resolve(ctx)
 
+    @override
     def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
         tick_length = self.attrib["tick_length"]
         assert isinstance(tick_length, AbsLengths)
@@ -91,6 +95,7 @@ class YTicks(Element):
         }
         super().__init__("dapple:yticks", attrib) # type: ignore
 
+    @override
     def resolve(self, ctx: ResolveContext) -> Element:
         assert "y" in ctx.scales
 
@@ -134,6 +139,7 @@ class YTicks(Element):
 
         return g.resolve(ctx)
 
+    @override
     def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
         tick_length = self.attrib["tick_length"]
         assert isinstance(tick_length, AbsLengths)

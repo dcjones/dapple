@@ -832,6 +832,20 @@ class CoordBounds:
             else:
                 self.bounds[unit] = (l.min(), l.max())
 
+    def update_from_ticks(self, scales: ScaleSet):
+        for unit, scale in scales.items():
+            _labels, ticks = scale.ticks()
+
+            if not isinstance(ticks, Lengths):
+                continue
+
+            ticks_min, ticks_max = ticks[0], ticks[-1]
+            if unit in self.bounds:
+                lower, upper = self.bounds[unit]
+                self.bounds[unit] = (lower.min(ticks_min), upper.max(ticks_max))
+            else:
+                self.bounds[unit] = (ticks_min, ticks_max)
+
     def solve(self) -> CoordSet:
         vw_sym, vh_sym, scale_sym, translate_sym = sympy.symbols("vw vh scale translate")
 
