@@ -4,39 +4,51 @@ from .coordinates import AbsLengths, Lengths, mm, vw, vh
 
 class Position(Enum):
     """
-    Represents relative positioning of a plot element, to be arranged by the by
-    the layout function.
+    Represents relative positioning of a plot element, to be arranged by the
+    layout function.
+
+    Two types of positioning are supported:
+    1. Z-layer positioning (Above/Below): Elements are layered behind or in front
+       of the main plot content, but within the same spatial area.
+    2. Spatial positioning (Top/Bottom/Left/Right): Elements are positioned
+       outside the main plot area in dedicated margin spaces.
+
+    Use spatial positions (BottomCenter, LeftCenter, etc.) for axis labels and
+    titles that need their own space. Use z-layer positions (Above, Below) for
+    annotations and overlays within the plot area.
     """
 
     Default = 1 # place in the panel, with unspecified order
 
-    Above = 2
+    # Z-layer positions - same spatial area as plot, different z-order
+    Above = 2      # In front of main plot content (higher z-layer)
     AboveTopLeft = 3
     AboveTopRight = 4
     AboveBottomLeft = 5
     AboveBottomRight = 6
 
-    Below = 7
+    Below = 7      # Behind main plot content (lower z-layer)
     BelowTopLeft = 8
     BelowTopRight = 9
     BelowBottomLeft = 10
     BelowBottomRight = 11
 
-    BottomLeft = 12
-    BottomCenter = 13
-    BottomRight = 14
+    # Spatial positions - outside main plot area in margin spaces
+    BottomLeft = 12    # Bottom margin, left-aligned
+    BottomCenter = 13  # Bottom margin, center-aligned (ideal for x-axis labels)
+    BottomRight = 14   # Bottom margin, right-aligned
 
-    TopLeft = 15
-    TopCenter = 16
-    TopRight = 17
+    TopLeft = 15       # Top margin, left-aligned
+    TopCenter = 16     # Top margin, center-aligned (ideal for titles)
+    TopRight = 17      # Top margin, right-aligned
 
-    LeftTop = 18
-    LeftCenter = 19
-    LeftBottom = 20
+    LeftTop = 18       # Left margin, top-aligned
+    LeftCenter = 19    # Left margin, center-aligned (ideal for y-axis labels)
+    LeftBottom = 20    # Left margin, bottom-aligned
 
-    RightTop = 21
-    RightCenter = 22
-    RightBottom = 23
+    RightTop = 21      # Right margin, top-aligned
+    RightCenter = 22   # Right margin, center-aligned
+    RightBottom = 23   # Right margin, bottom-aligned
 
     def isabove(self) -> bool:
         return self in [Position.Above, Position.AboveTopLeft, Position.AboveTopRight, Position.AboveBottomLeft, Position.AboveBottomRight]

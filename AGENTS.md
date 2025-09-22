@@ -11,3 +11,4 @@ Follow some basic guidelines when writing code.
     directory and are run with `uv run pytest`.
   * Use type annotations whenever possible.
   * Don't add comments to code that is fairly straightforward.
+  * Put simple examples of features in the `debug` directory.

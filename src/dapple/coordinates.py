@@ -882,7 +882,9 @@ def sympy_to_length(expr: sympy.Basic) -> Lengths:
     Convert a small subset of sympy expressions to a Length expression.
     """
 
-    if isinstance(expr, sympy.Symbol):
+    if isinstance(expr, (sympy.Float, sympy.Integer, sympy.Rational)):
+        return mm(float(expr))
+    elif isinstance(expr, sympy.Symbol):
         if expr.name == "mm":
             return mm(1.0)
         else:

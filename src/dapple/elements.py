@@ -93,6 +93,7 @@ class Element(Resolvable):
             child_ctx = ctx
 
         el = self.similar(attrib)
+        el.text = self.text
 
         for child in self:
             el.append(resolve(child, child_ctx))
@@ -108,10 +109,12 @@ class Element(Resolvable):
             if value is not None:
                 _ = output.write(f"{key}=\"{value}\" ")
 
-        if len(self) == 0:
+        if len(self) == 0 and self.text is None:
             _ = output.write(f"/>\n")
         else:
             _ = output.write(f">\n")
+            if self.text is not None:
+                _ = output.write(self.text)
             for child in self:
                 child.serialize(output, indent+2)
             _ = output.write(" " * indent)
@@ -189,6 +192,8 @@ class Element(Resolvable):
         Elements can optionally supply lower bound in absolute units, for the amount
         of space they need. This is only necessary for elements positioned on the
         sides of plots, where we need to know how much space to reserve.
+
+        We assume ConfigKeys have been all replaced by this point.
         """
 
         return mm(0), mm(0)

@@ -100,7 +100,7 @@ class Font:
             - Complex scripts and ligatures are properly handled through HarfBuzz
         """
         if not text:
-            return AbsLengths(0.0), AbsLengths(0.0)
+            return mm(0.0), mm(0.0)
 
         try:
             # Create HarfBuzz buffer
