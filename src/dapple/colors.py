@@ -22,6 +22,10 @@ class Colors(Serializable):
         if not self.isscalar():
             raise ValueError(f"Scalar color expected but found {len(self)} lengths.")
 
+    def scalar_value(self):
+        if not self.isscalar():
+            raise ValueError(f"Scalar color expected but found {len(self)} lengths.")
+
     def repeat_scalar(self, n: int) -> 'Colors':
         self.assert_scalar()
         return Colors(np.tile(self.values, (n, 1)))
@@ -30,9 +34,11 @@ class Colors(Serializable):
         for value in self.values:
             yield Colors(np.array([value]))
 
-    def serialize(self) -> Optional[str]:
-        self.assert_scalar()
-        return Color(self.values.squeeze()).hex
+    def serialize(self) -> None | str | list[str]:
+        if self.isscalar():
+            return Color(self.values.squeeze()).hex
+        else:
+            return [Color(self.values[i,:]).hex for i in range(len(self))]
 
 @singledispatch
 def color(value) -> Colors:

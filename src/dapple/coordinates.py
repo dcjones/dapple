@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import singledispatch
 from numpy.typing import NDArray
-from typing import Any, TypeAlias, Tuple, Optional, TYPE_CHECKING
+from typing import Any, TypeAlias, Tuple, Optional, TYPE_CHECKING, override
 import numpy as np
 import sympy
 
@@ -20,7 +20,7 @@ class Serializable(ABC):
     strings during SVG serialization.
     """
     @abstractmethod
-    def serialize(self) -> Optional[str]:
+    def serialize(self) -> None | str | list[str]:
         pass
 
     # Ideally we should be able to delete a attriute by returning None.
@@ -34,7 +34,7 @@ class ResolveContext:
 
 class Resolvable(ABC):
     @abstractmethod
-    def resolve(self, ctx: ResolveContext) -> Any:
+    def resolve(self, ctx: ResolveContext) -> object:
         pass
 
 @singledispatch
@@ -42,17 +42,21 @@ def resolve(value, ctx):
     return value
 
 @resolve.register(dict)
-def _(arg, ctx) -> Any:
+def _(arg, ctx) -> dict[str, object]:
     return {k: resolve(v, ctx) for k, v in arg.items()}
 
 @resolve.register(Resolvable)
-def _(arg, ctx):
+def _(arg, ctx) -> object:
     return arg.resolve(ctx)
 
 
 class Lengths(Resolvable):
     @abstractmethod
     def __len__(self) -> int:
+        pass
+
+    @abstractmethod
+    def __getitem__(self, idx: int) -> Lengths:
         pass
 
     def assert_scalar(self):
@@ -164,6 +168,7 @@ class AbsLengths(Lengths, Serializable):
     def __init__(self, values: np.ndarray):
         self.values = values.astype(np.float64)
 
+    @override
     def __len__(self) -> int:
         return len(self.values)
 
@@ -171,6 +176,7 @@ class AbsLengths(Lengths, Serializable):
         for value in self.values:
             yield AbsLengths(np.array([value]))
 
+    @override
     def __getitem__(self, index) -> 'AbsLengths':
         """
         Get items from values and construct a new AbsLengths.
@@ -199,14 +205,19 @@ class AbsLengths(Lengths, Serializable):
         self.assert_scalar()
         return AbsLengths(np.repeat(self.values, n))
 
-    def serialize(self) -> Optional[str]:
-        v = self.scalar_value()
-        return f"{v:.2f}"
+    @override
+    def serialize(self) -> None | str | list[str]:
+        if self.isscalar():
+            v = self.scalar_value()
+            return f"{v:.2f}"
+        else:
+            return [f"{v:.2f}" for v in self.values]
 
     def scalar_value(self) -> float:
         self.assert_scalar()
         return float(self.values[0])
 
+    @override
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         return self
 
@@ -222,6 +233,7 @@ class AbsLengths(Lengths, Serializable):
     def __rmul__(self, other: float) -> AbsLengths:
         return AbsLengths(other * self.values)
 
+    @override
     def to_sympy(self) -> sympy.Expr:
         self.assert_scalar()
         return self.values[0] * sympy.Symbol("mm", positive=True)
@@ -286,6 +298,7 @@ class CtxLengths(Lengths):
     def __len__(self) -> int:
         return len(self.values)
 
+    @override
     def __getitem__(self, index) -> 'CtxLengths':
         """
         Get items from values and construct a new AbsLengths.
@@ -413,9 +426,15 @@ class LengthsAddOp(Lengths):
         self.a = a
         self.b = b
 
+    @override
+    def __getitem__(self, index) -> Lengths:
+        return LengthsAddOp(self.a[index], self.b[index])
+
+    @override
     def __len__(self) -> int:
         return len(self.a)
 
+    @override
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         a = self.a.resolve(ctx)
         b = self.b.resolve(ctx)
@@ -442,6 +461,10 @@ class LengthsMulOp(Lengths):
     def __len__(self) -> int:
         return len(self.b)
 
+    @override
+    def __getitem__(self, index) -> Lengths:
+        return LengthsMulOp(self.a, self.b[index])
+
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         b = self.b.resolve(ctx)
         assert isinstance(b, AbsLengths)
@@ -465,6 +488,10 @@ class LengthsNegOp(Lengths):
 
     def __len__(self) -> int:
         return len(self.a)
+
+    @override
+    def __getitem__(self, index) -> Lengths:
+        return LengthsNegOp(self.a[index])
 
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         a = self.a.resolve(ctx)
@@ -490,6 +517,10 @@ class LengthsAbsOp(Lengths):
     def __len__(self) -> int:
         return len(self.a)
 
+    @override
+    def __getitem__(self, index) -> Lengths:
+        return LengthsAbsOp(self.a[index])
+
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         a = self.a.resolve(ctx)
         assert isinstance(a, AbsLengths)
@@ -513,6 +544,10 @@ class LengthsUnMinOp(Lengths):
 
     def __init__(self, a: Lengths):
         self.a = a
+
+    @override
+    def __getitem__(self, index) -> Lengths:
+        return LengthsUnMinOp(self.a[index])
 
     def __len__(self) -> int:
         return len(self.a)
@@ -543,6 +578,10 @@ class LengthsUnMaxOp(Lengths):
     def __len__(self) -> int:
         return len(self.a)
 
+    @override
+    def __getitem__(self, index) -> Lengths:
+        return LengthsUnMaxOp(self.a[index])
+
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         a = self.a.resolve(ctx)
         return AbsLengths(a.values.max(keepdims=True))
@@ -572,6 +611,10 @@ class LengthsMinOp(Lengths):
 
     def __len__(self) -> int:
         return len(self.a)
+
+    @override
+    def __getitem__(self, index) -> Lengths:
+        return LengthsMinOp(self.a[index], self.b[index])
 
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         a = self.a.resolve(ctx)
@@ -605,6 +648,10 @@ class LengthsMaxOp(Lengths):
 
     def __len__(self) -> int:
         return len(self.a)
+
+    @override
+    def __getitem__(self, index) -> Lengths:
+        return LengthsMaxOp(self.a[index], self.b[index])
 
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         a = self.a.resolve(ctx)
@@ -672,7 +719,8 @@ class AbsTransform(Serializable):
     def isidentity(self) -> bool:
         return self.a == 1 and self.b == 0 and self.c == 0 and self.d == 1 and self.tx == 0 and self.ty == 0
 
-    def serialize(self) -> Optional[str]:
+    @override
+    def serialize(self) -> None | str:
         # only translation
         if self.a == 1.0 and self.b == 0.0 and self.c == 0.0 and self.d == 1.0:
             if self.tx == 0.0 and self.ty == 0.0:

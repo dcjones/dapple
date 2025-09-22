@@ -1,36 +1,32 @@
 
-from xml.etree import ElementTree as ET
-from xml.etree.ElementTree import ElementTree, Element
 from numbers import Number
-from typing import Union, TextIO, Optional, BinaryIO
+from typing import TextIO, BinaryIO, override
+from io import StringIO
 import numpy as np
 import sys
 
-from .coordinates import Resolvable, Serializable, AbsCoordSet, AbsCoordTransform, Lengths, AbsLengths, ResolveContext, Lengths, abslengths
-from .coordinates import mm, cm, pt, inch
-from .coordinates import cx, cxv, cy, cyv, vw, vwv, vh, vhv
+from .coordinates import \
+    CoordBounds, Serializable, AbsCoordSet, AbsCoordTransform, Lengths, \
+    AbsLengths, ResolveContext, Lengths, abslengths, \
+    mm, cm, pt, inch, cx, cxv, cy, cyv, vw, vwv, vh, vhv
 from .occupancy import Occupancy
 from .clipboard import copy_svg, ClipboardError
 from .scales import UnscaledValues, UnscaledExpr, ScaleSet, ScaleContinuousColor, ScaleDiscreteColor, ScaleContinuousLength, ScaleDiscreteLength
 from .export import svg_to_png, svg_to_pdf, ExportError
-from .defaults import DEFAULTS
 from .scales import Scale
-from .coordinates import Resolvable, CoordBounds
 from .config import Config, ConfigKey
 from .layout import Position
-from .elements import ResolvableElement, ViewportElement, \
-    delete_attributes_inplace, traverse_attributes, traverse_elements, rewrite_attributes, \
-    rewrite_attributes_inplace, abs_bounds, viewport
+from .elements import Element, viewport
 
 
-
-class Plot(ResolvableElement):
+class Plot(Element):
     def __init__(self):
         # TODO:
         # - default scales and such
 
         super().__init__("dapple:plot")
 
+    @override
     def resolve(self, ctx: ResolveContext) -> Element:
         """
         The root resolve function. This does a certain about of set up before
@@ -54,7 +50,7 @@ class Plot(ResolvableElement):
         def update_all_numeric_expr(_attr, values: UnscaledExpr):
             values.accept_visitor(update_all_numeric_values)
 
-        traverse_attributes(self, update_all_numeric_expr, UnscaledExpr)
+        self.traverse_attributes(update_all_numeric_expr, UnscaledExpr)
 
         for (unit, numeric) in all_numeric.items():
             if unit in scaleset:
@@ -78,16 +74,17 @@ class Plot(ResolvableElement):
         def fit_expr(_attr, expr: UnscaledExpr):
             expr.accept_fit(scaleset)
 
-        traverse_attributes(self, fit_expr, UnscaledExpr)
+        self.traverse_attributes(fit_expr, UnscaledExpr)
 
         # Layout plot
-        root_configed = rewrite_attributes(
-            self, lambda k, v: config.get(v), ConfigKey)
+        root_configed = self.rewrite_attributes(
+            lambda k, v: config.get(v), ConfigKey)
 
-        def scale_expr(_attr, expr: UnscaledExpr):
+        def scale_expr(_attr, expr: object):
+            assert isinstance(expr, UnscaledExpr)
             return expr.accept_scale(scaleset)
 
-        root_scaled =  rewrite_attributes(root_configed,  scale_expr, UnscaledExpr)
+        root_scaled =  root_configed.rewrite_attributes(scale_expr, UnscaledExpr)
 
         els = list(root_scaled)
 
@@ -99,13 +96,11 @@ class Plot(ResolvableElement):
         bounds = CoordBounds()
         def update_bounds(_attr, expr: Lengths):
             bounds.update(expr)
-        traverse_attributes(root, update_bounds, Lengths)
+        root.traverse_attributes(update_bounds, Lengths)
         coordset = bounds.solve()
 
         for child in root:
-            assert isinstance(child, ViewportElement)
             grandchild = child[0]
-            assert isinstance(grandchild, ResolvableElement)
             grandchild.merge_coords(coordset)
 
         # Resolve children
@@ -113,15 +108,11 @@ class Plot(ResolvableElement):
         svg_root = root.resolve(ctx)
 
         # Strip any lingering dapple-specific attributes
-        delete_attributes_inplace(svg_root, lambda k, v: k.startswith("dapple:"))
-
-        # Convert serializable attributes to strings
-        rewrite_attributes_inplace(svg_root, lambda k, v: v.serialize(), Serializable)
-        delete_attributes_inplace(svg_root, lambda k, v: v is None)
+        svg_root.delete_attributes_inplace(lambda k, v: k.startswith("dapple:"))
 
         return svg_root
 
-    def layout(self, els: list[Element], width: AbsLengths, height: AbsLengths) -> ResolvableElement:
+    def layout(self, els: list[Element], width: AbsLengths, height: AbsLengths) -> Element:
         """
         Arrange child elements in a grid, based on the "dapple:position" attribute.
         """
@@ -170,14 +161,14 @@ class Plot(ResolvableElement):
             elif position == Position.Below:
                 below_nodes.append(child)
             elif position.isbelow():
-                wbound, hbound = abs_bounds(child)
+                wbound, hbound = child.abs_bounds()
                 xoff, yoff = position.offset(wbound, hbound)
                 childvp = viewport([child], x=xoff, y=yoff, width=wbound, height=hbound)
                 below_nodes.append(childvp)
             elif position == Position.Above:
                 above_nodes.append(child)
             elif position.isabove():
-                wbound, hbound = abs_bounds(child)
+                wbound, hbound = child.abs_bounds()
                 xoff, yoff = position.offset(wbound, hbound)
                 childvp = viewport([child], x=xoff, y=yoff, width=wbound, height=hbound)
                 above_nodes.append(childvp)
@@ -205,14 +196,14 @@ class Plot(ResolvableElement):
 
         return self._arrange_children(grid, i_focus, j_focus, width, height)
 
-    def _arrange_children(self, grid: np.ndarray, i_focus: int, j_focus: int, width: AbsLengths, height: AbsLengths) -> ResolvableElement:
+    def _arrange_children(self, grid: np.ndarray, i_focus: int, j_focus: int, width: AbsLengths, height: AbsLengths) -> Element:
         nrows, ncols = grid.shape
 
-        def cell_abs_bounds(cell: Optional[Element]):
+        def cell_abs_bounds(cell: Element | None):
             if cell is None:
                 return (0.0, 0.0)
             else:
-                l, u = abs_bounds(cell)
+                l, u = cell.abs_bounds()
                 return (l.scalar_value(), u.scalar_value())
 
         widths, heights = np.vectorize(cell_abs_bounds)(grid)
@@ -233,7 +224,7 @@ class Plot(ResolvableElement):
         focus_height = total_height - row_heights.sum()
         focus_width = total_width - col_widths.sum()
 
-        root = ResolvableElement("g")
+        root = Element("g")
         y = 0.0
         for (i, row_height) in enumerate(row_heights):
             if i == i_focus:
@@ -263,7 +254,7 @@ class Plot(ResolvableElement):
         return root
 
 
-    def svg(self, width: Union[AbsLengths, Number], height: Union[AbsLengths, Number], output: Optional[Union[str, TextIO]]=None, clip: bool=False):
+    def svg(self, width: AbsLengths | Number, height: AbsLengths | Number, output: None | str | TextIO=None, clip: bool=False):
         if not isinstance(width, AbsLengths):
             width = abslengths(width)
         width.assert_scalar()
@@ -299,25 +290,29 @@ class Plot(ResolvableElement):
         svg_root.set("xmlns", "http://www.w3.org/2000/svg")
         svg_root.append(resolved_plot)
 
+        # TODO: We should output xml declaration
+
         if clip:
-            svg_string = ET.tostring(svg_root, encoding="unicode", method="xml")
+            buf = StringIO()
+            svg_root.serialize(buf)
+
             try:
-                copy_svg(svg_string)
+                copy_svg(buf.getvalue())
             except ClipboardError as e:
                 print(f"Warning: Failed to copy SVG to clipboard: {e}", file=sys.stderr)
 
         if output is not None:
-            tree = ElementTree(svg_root)
             if isinstance(output, str):
-                tree.write(output, encoding="unicode", xml_declaration=True)
+                output_file = open(output, "w")
+                svg_root.serialize(output_file)
             else:
-                tree.write(output, encoding="unicode", xml_declaration=True)
+                svg_root.serialize(output)
 
         return svg_root
 
-    def png(self, width: Union[AbsLengths, Number], height: Union[AbsLengths, Number],
-            output: Optional[Union[str, BinaryIO]]=None, dpi: int=96,
-            pixel_width: Optional[int]=None, pixel_height: Optional[int]=None) -> Optional[bytes]:
+    def png(self, width: AbsLengths | Number, height: AbsLengths | Number,
+            output: None | str | BinaryIO=None, dpi: int=96,
+            pixel_width: None | int=None, pixel_height: None | int=None) -> None | bytes:
         """
         Export plot as PNG using Inkscape.
 
@@ -340,7 +335,9 @@ class Plot(ResolvableElement):
         """
         # First generate the SVG
         svg_root = self.svg(width, height)
-        svg_string = ET.tostring(svg_root, encoding="unicode", method="xml")
+        buf = StringIO()
+        svg_root.serialize(buf)
+        svg_string = buf.getvalue()
 
         # Convert to PNG using Inkscape
         try:
@@ -350,8 +347,8 @@ class Plot(ResolvableElement):
             print(f"Error exporting to PNG: {e}", file=sys.stderr)
             raise
 
-    def pdf(self, width: Union[AbsLengths, Number], height: Union[AbsLengths, Number],
-            output: Optional[Union[str, BinaryIO]]=None, text_to_path: bool=False) -> Optional[bytes]:
+    def pdf(self, width: AbsLengths | Number, height: AbsLengths | Number,
+            output: None  | str | BinaryIO=None, text_to_path: bool=False) -> None | bytes:
         """
         Export plot as PDF using Inkscape.
 
@@ -372,7 +369,9 @@ class Plot(ResolvableElement):
         """
         # First generate the SVG
         svg_root = self.svg(width, height)
-        svg_string = ET.tostring(svg_root, encoding="unicode", method="xml")
+        buf = StringIO()
+        svg_root.serialize(buf)
+        svg_string = buf.getvalue()
 
         # Convert to PDF using Inkscape
         try:
@@ -393,13 +392,13 @@ def plot(*args, **kwargs) -> Plot:
             pl.append(arg)
         elif isinstance(arg, Scale):
             if pl.get("dapple:scaleset") is None:
-                pl.set("dapple:scaleset", arg.unit, arg) # type: ignore
-            else:
-                scaleset = pl.get("dapple:scaleset")
-                assert isinstance(scaleset, dict)
-                scaleset[arg.unit] = arg
+                pl.set("dapple:scaleset", {})
+
+            scaleset = pl.get("dapple:scaleset")
+            assert isinstance(scaleset, dict)
+            scaleset[arg.unit] = arg
         elif isinstance(arg, Config):
-            pl.set("dapple:config", arg) # type: ignore
+            pl.set("dapple:config", arg)
         else:
             raise TypeError(f"Unsupported type for plot argument: {type(arg)}")
 

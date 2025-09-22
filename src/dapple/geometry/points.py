@@ -1,6 +1,6 @@
 
 from ..elements import VectorizedElement
-from ..scales import UnscaledValues, length_params, color_params
+from ..scales import length_params, color_params
 from ..coordinates import CtxLenType, mm
 from ..config import ConfigKey
 

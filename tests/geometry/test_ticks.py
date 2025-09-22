@@ -1,5 +1,4 @@
 import pytest
-from xml.etree.ElementTree import Element
 from dapple.geometry.ticks import XTicks, YTicks, xticks, yticks
 from dapple.coordinates import ResolveContext, mm
 from dapple.config import Config

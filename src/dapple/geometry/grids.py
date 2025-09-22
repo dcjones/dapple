@@ -1,23 +1,22 @@
-from xml.etree.ElementTree import Element
-from ..elements import ResolvableElement, VectorizedElement
-from ..coordinates import Resolvable, ResolveContext, Lengths, vh
+from ..elements import Element, VectorizedElement
+from ..coordinates import ResolveContext, Lengths, vh
 from ..layout import Position
 from ..config import ConfigKey
 
-class XGrids(ResolvableElement):
+class XGrids(Element):
     def __init__(
             self,
             stroke=ConfigKey("grid_stroke"),
             stroke_width=ConfigKey("grid_stroke_width"),
             dasharray=ConfigKey("grid_stroke_dasharray"),
     ):
-        attrib = {
+        attrib: dict[str, object] = {
             "dapple:position": Position.Below,
             "stroke": stroke,
             "stroke-width": stroke_width,
             "stroke-dasharray": dasharray,
         }
-        super().__init__("dapple:xgrids", attrib) # type: ignore
+        super().__init__("dapple:xgrids", attrib)
 
     def resolve(self, ctx: ResolveContext) -> Element:
         assert "x" in ctx.scales
@@ -26,7 +25,7 @@ class XGrids(ResolvableElement):
         _x_labels, x_ticks = x_scale.ticks()
         assert isinstance(x_ticks, Lengths)
 
-        g = ResolvableElement(
+        g = Element(
             "g", {
                 "stroke": self.attrib["stroke"],
                 "stroke-width": self.attrib["stroke-width"],
@@ -48,20 +47,20 @@ class XGrids(ResolvableElement):
 def xgrids(*args, **kwargs):
     return XGrids(*args, **kwargs)
 
-class YGrids(ResolvableElement):
+class YGrids(Element):
     def __init__(
             self,
             stroke=ConfigKey("grid_stroke"),
             stroke_width=ConfigKey("grid_stroke_width"),
             dasharray=ConfigKey("grid_stroke_dasharray"),
     ):
-        attrib = {
+        attrib: dict[str, object] = {
             "dapple:position": Position.Below,
             "stroke": stroke,
             "stroke-width": stroke_width,
             "stroke-dasharray": dasharray,
         }
-        super().__init__("dapple:ygrids", attrib) # type: ignore
+        super().__init__("dapple:ygrids", attrib)
 
     def resolve(self, ctx: ResolveContext) -> Element:
         assert "y" in ctx.scales
@@ -70,7 +69,7 @@ class YGrids(ResolvableElement):
         _y_labels, y_ticks = y_scale.ticks()
         assert isinstance(y_ticks, Lengths)
 
-        g = ResolvableElement(
+        g = Element(
             "g", {
                 "stroke": self.attrib["stroke"],
                 "stroke-width": self.attrib["stroke-width"],

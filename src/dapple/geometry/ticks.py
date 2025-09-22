@@ -1,10 +1,9 @@
-from xml.etree.ElementTree import Element
-from ..elements import ResolvableElement, VectorizedElement
+from ..elements import Element, VectorizedElement
 from ..coordinates import AbsLengths, Resolvable, ResolveContext, Lengths, vh, vw, mm
 from ..layout import Position
 from ..config import ConfigKey
 
-class XTicks(ResolvableElement):
+class XTicks(Element):
     """
     Draw tick marks along the bottom margin of the plot for the x-axis.
     """
@@ -14,7 +13,7 @@ class XTicks(ResolvableElement):
             stroke_width=ConfigKey("tick_stroke_width"),
             tick_length=ConfigKey("tick_length"),
     ):
-        attrib = {
+        attrib: dict[str, object] = {
             "dapple:position": Position.BottomLeft,
             "stroke": stroke,
             "stroke-width": stroke_width,
@@ -34,7 +33,7 @@ class XTicks(ResolvableElement):
         if isinstance(tick_length, Resolvable):
             tick_length = tick_length.resolve(ctx)
 
-        g = ResolvableElement(
+        g = Element(
             "g", {
                 "stroke": self.attrib["stroke"],
                 "stroke-width": self.attrib["stroke-width"],
@@ -43,10 +42,10 @@ class XTicks(ResolvableElement):
 
         # Add the main axis line
         g.append(
-            ResolvableElement(
+            Element(
                 "line", {
-                    "x1": vw(0),
-                    "x2": vw(1),
+                    "x1": x_ticks[0],
+                    "x2": x_ticks[-1],
                     "y1": vh(0),
                     "y2": vh(0),
                 }
@@ -74,7 +73,7 @@ class XTicks(ResolvableElement):
 def xticks(*args, **kwargs):
     return XTicks(*args, **kwargs)
 
-class YTicks(ResolvableElement):
+class YTicks(Element):
     """
     Draw tick marks along the left margin of the plot for the y-axis.
     """
@@ -84,7 +83,7 @@ class YTicks(ResolvableElement):
             stroke_width=ConfigKey("tick_stroke_width"),
             tick_length=ConfigKey("tick_length"),
     ):
-        attrib = {
+        attrib: dict[str, object] = {
             "dapple:position": Position.LeftTop,
             "stroke": stroke,
             "stroke-width": stroke_width,
@@ -103,7 +102,7 @@ class YTicks(ResolvableElement):
         tick_length = self.attrib["tick_length"]
         assert isinstance(tick_length, AbsLengths)
 
-        g = ResolvableElement(
+        g = Element(
             "g", {
                 "stroke": self.attrib["stroke"],
                 "stroke-width": self.attrib["stroke-width"],
@@ -112,7 +111,7 @@ class YTicks(ResolvableElement):
 
         # Add the main axis line
         g.append(
-            ResolvableElement(
+            Element(
                 "line", {
                     "x1": tick_length,
                     "x2": tick_length,
