@@ -86,6 +86,11 @@ class Plot(Element):
 
         root_scaled =  root_configed.rewrite_attributes(scale_expr, UnscaledExpr)
 
+        def scale_elements(el: Element):
+            el.apply_scales(scaleset)
+
+        root_scaled.traverse_elements(scale_elements)
+
         els = list(root_scaled)
 
         width = mm(ctx.coords["vw"].scale)
@@ -260,6 +265,10 @@ class Plot(Element):
 
 
     def svg(self, width: AbsLengths | Number, height: AbsLengths | Number, output: None | str | TextIO=None, clip: bool=False):
+        """
+        Given an absolute plot size, resolve the the plot into a pure SVG.
+        """
+
         if not isinstance(width, AbsLengths):
             width = abslengths(width)
         width.assert_scalar()

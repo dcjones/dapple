@@ -56,6 +56,11 @@ class Config:
     title_font_size: AbsLengths=field(default_factory=lambda: mm(4.5))
     title_fill: Colors=field(default_factory=lambda: color("#333333"))
 
+    # Tick label configuration
+    tick_label_font_family: str = "DejaVu Sans"
+    tick_label_font_size: AbsLengths=field(default_factory=lambda: mm(2.5))
+    tick_label_fill: Colors=field(default_factory=lambda: color("#333333"))
+
     def get(self, key: ConfigKey) -> Any:
         return getattr(self, key.key)
 

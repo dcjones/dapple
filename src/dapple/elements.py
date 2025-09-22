@@ -2,6 +2,7 @@
 from .coordinates import CoordTransform, Resolvable, CoordSet, AbsCoordSet, AbsLengths, Lengths, Transform, ResolveContext, Serializable, resolve, mm, vw, vh, translate
 from .occupancy import Occupancy
 from .colors import Colors
+from .scales import ScaleSet
 from typing import Any, Collection, TextIO, Callable, Optional, Iterable, override, assert_type
 from itertools import repeat
 from functools import singledispatch
@@ -197,6 +198,13 @@ class Element(Resolvable):
         """
 
         return mm(0), mm(0)
+
+    def apply_scales(self, scales: ScaleSet):
+        """
+        Most elements don't need to implement this, but e.g. if an element needs
+        to know what the ticks are, this is a useful way to get that info.
+        """
+        pass
 
     def merge_coords(self, new_coords: CoordSet):
         if "dapple:coords" not in self.attrib:
