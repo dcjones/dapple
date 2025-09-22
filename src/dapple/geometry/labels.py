@@ -1,8 +1,10 @@
 from ..elements import Element
-from ..coordinates import AbsLengths, ResolveContext, mm, vw, vh
+from ..coordinates import AbsLengths, ResolveContext, Lengths, mm, vw, vh
 from ..layout import Position
-from ..config import ConfigKey, Config
+from ..config import ConfigKey
 from ..textextents import Font
+
+from typing import override
 
 
 class XLabel(Element):
@@ -25,6 +27,7 @@ class XLabel(Element):
         }
         super().__init__("dapple:xlabel", attrib) # type: ignore
 
+    @override
     def resolve(self, ctx: ResolveContext) -> Element:
         text = self.attrib["text"]
         font_family = self.attrib["font_family"]
@@ -37,10 +40,14 @@ class XLabel(Element):
 
         # Get text extents using Font
         font = Font(font_family, font_size)
-        text_width, text_height = font.get_extents(text)
+        _text_width, text_height = font.get_extents(text)
+
+        x_scale = ctx.scales["x"]
+        _x_labels, x_ticks = x_scale.ticks()
+        assert isinstance(x_ticks, Lengths)
 
         # Center the text horizontally using text-anchor
-        x = vw(0.5)
+        x = 0.5 * (x_ticks[0] + x_ticks[-1])
         y = text_height  # Position from top of the space allocated
 
         text_element = Element(
@@ -57,6 +64,7 @@ class XLabel(Element):
 
         return text_element.resolve(ctx)
 
+    @override
     def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
         text = self.attrib["text"]
         font_family = self.attrib["font_family"]
@@ -96,6 +104,7 @@ class YLabel(Element):
         }
         super().__init__("dapple:ylabel", attrib) # type: ignore
 
+    @override
     def resolve(self, ctx: ResolveContext) -> Element:
         text = self.attrib["text"]
         font_family = self.attrib["font_family"]
@@ -108,11 +117,15 @@ class YLabel(Element):
 
         # Get text extents using Font
         font = Font(font_family, font_size)
-        text_width, text_height = font.get_extents(text)
+        _text_width, text_height = font.get_extents(text)
+
+        y_scale = ctx.scales["y"]
+        _y_labels, y_ticks = y_scale.ticks()
+        assert isinstance(y_ticks, Lengths)
 
         # Position the text centered vertically and rotated -90 degrees
         x = text_height  # Distance from left edge
-        y = vh(0.5)  # Center vertically
+        y = 0.5 * (y_ticks[0] + y_ticks[-1])  # Center vertically
 
         # Resolve coordinates for the transform attribute
         x_resolved = x.resolve(ctx)
@@ -133,6 +146,7 @@ class YLabel(Element):
 
         return text_element.resolve(ctx)
 
+    @override
     def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
         text = self.attrib["text"]
         font_family = self.attrib["font_family"]
@@ -173,6 +187,7 @@ class Title(Element):
         }
         super().__init__("dapple:title", attrib) # type: ignore
 
+    @override
     def resolve(self, ctx: ResolveContext) -> Element:
         text = self.attrib["text"]
         font_family = self.attrib["font_family"]
@@ -185,7 +200,7 @@ class Title(Element):
 
         # Get text extents using Font
         font = Font(font_family, font_size)
-        text_width, text_height = font.get_extents(text)
+        _text_width, text_height = font.get_extents(text)
 
         # Center the text horizontally using text-anchor
         x = vw(0.5)
@@ -205,6 +220,7 @@ class Title(Element):
 
         return text_element.resolve(ctx)
 
+    @override
     def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
         text = self.attrib["text"]
         font_family = self.attrib["font_family"]
