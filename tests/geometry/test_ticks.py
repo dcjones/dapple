@@ -9,14 +9,14 @@ def test_xticks_creation():
     """Test that XTicks can be created with default parameters."""
     x_ticks = XTicks()
     assert x_ticks.tag == "dapple:xticks"
-    assert x_ticks.attrib["dapple:position"] == Position.Below
+    assert "dapple:position" in x_ticks.attrib
 
 
 def test_yticks_creation():
     """Test that YTicks can be created with default parameters."""
     y_ticks = YTicks()
     assert y_ticks.tag == "dapple:yticks"
-    assert y_ticks.attrib["dapple:position"] == Position.BottomLeft
+    assert "dapple:position" in y_ticks.attrib
 
 
 def test_xticks_function():

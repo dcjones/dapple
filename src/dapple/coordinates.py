@@ -50,7 +50,7 @@ def _(arg, ctx) -> object:
     return arg.resolve(ctx)
 
 
-class Lengths(Resolvable):
+class Lengths(Resolvable, ABC):
     @abstractmethod
     def __len__(self) -> int:
         pass
@@ -295,6 +295,7 @@ class CtxLengths(Lengths):
     unit: str
     typ: CtxLenType
 
+    @override
     def __len__(self) -> int:
         return len(self.values)
 
@@ -323,6 +324,7 @@ class CtxLengths(Lengths):
         """
         return CtxLengths(self.values.max(keepdims=True), self.unit, self.typ)
 
+    @override
     def assert_scalar(self):
         if len(self.values) != 1:
             raise ValueError(f"Scalar length expected but found {len(self.values)} lengths.")
@@ -334,6 +336,7 @@ class CtxLengths(Lengths):
         self.assert_scalar()
         return float(self.values[0])
 
+    @override
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         coord = ctx.coords.get(self.unit)
         if coord is None:
@@ -345,9 +348,11 @@ class CtxLengths(Lengths):
             case CtxLenType.Pos:
                 return AbsLengths(coord.translate + coord.scale * self.values)
 
+    @override
     def __repr__(self) -> str:
         return f"CtxLengths({self.values}, {self.unit}, {self.typ})"
 
+    @override
     def __str__(self) -> str:
         unit_str = self.unit + _ctx_len_type_str(self.typ)
 
@@ -356,9 +361,11 @@ class CtxLengths(Lengths):
         else:
             return f"{self.values}{unit_str}"
 
+    @override
     def __rmul__(self, other: float) -> CtxLengths:
         return CtxLengths(other * self.values, self.unit, self.typ)
 
+    @override
     def to_sympy(self) -> sympy.Expr:
         self.assert_scalar()
         if self.typ == CtxLenType.Vec:
@@ -368,6 +375,7 @@ class CtxLengths(Lengths):
 
         return self.values[0] * sym
 
+    @override
     def units(self) -> set[str]:
         return set([self.unit])
 
@@ -458,6 +466,7 @@ class LengthsMulOp(Lengths):
     a: float
     b: Lengths
 
+    @override
     def __len__(self) -> int:
         return len(self.b)
 
@@ -465,20 +474,25 @@ class LengthsMulOp(Lengths):
     def __getitem__(self, index) -> Lengths:
         return LengthsMulOp(self.a, self.b[index])
 
+    @override
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         b = self.b.resolve(ctx)
         assert isinstance(b, AbsLengths)
         return AbsLengths(self.a * b.values)
 
+    @override
     def __repr__(self) -> str:
         return f"LengthsMulOp({self.a!r}, {self.b!r})"
 
+    @override
     def __str__(self) -> str:
         return f"({self.a} * {self.b})"
 
+    @override
     def to_sympy(self) -> sympy.Expr:
         return self.a * self.b.to_sympy()
 
+    @override
     def units(self) -> set[str]:
         return self.b.units()
 
@@ -486,6 +500,7 @@ class LengthsMulOp(Lengths):
 class LengthsNegOp(Lengths):
     a: Lengths
 
+    @override
     def __len__(self) -> int:
         return len(self.a)
 
@@ -493,20 +508,25 @@ class LengthsNegOp(Lengths):
     def __getitem__(self, index) -> Lengths:
         return LengthsNegOp(self.a[index])
 
+    @override
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         a = self.a.resolve(ctx)
         assert isinstance(a, AbsLengths)
         return AbsLengths(-a.values)
 
+    @override
     def __repr__(self) -> str:
         return f"LengthsNegOp({self.a!r})"
 
+    @override
     def __str__(self) -> str:
         return f"-{self.a}"
 
+    @override
     def to_sympy(self) -> sympy.Expr:
         return -self.a.to_sympy()
 
+    @override
     def units(self) -> set[str]:
         return self.a.units()
 
@@ -514,6 +534,7 @@ class LengthsNegOp(Lengths):
 class LengthsAbsOp(Lengths):
     a: Lengths
 
+    @override
     def __len__(self) -> int:
         return len(self.a)
 
@@ -521,20 +542,25 @@ class LengthsAbsOp(Lengths):
     def __getitem__(self, index) -> Lengths:
         return LengthsAbsOp(self.a[index])
 
+    @override
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         a = self.a.resolve(ctx)
         assert isinstance(a, AbsLengths)
         return AbsLengths(np.abs(a.values))
 
+    @override
     def __repr__(self) -> str:
         return f"LengthsAbsOp({self.a!r})"
 
+    @override
     def __str__(self) -> str:
         return f"abs({self.a})"
 
+    @override
     def to_sympy(self) -> sympy.Expr:
         return abs(self.a.to_sympy())
 
+    @override
     def units(self) -> set[str]:
         return self.a.units()
 
@@ -549,22 +575,29 @@ class LengthsUnMinOp(Lengths):
     def __getitem__(self, index) -> Lengths:
         return LengthsUnMinOp(self.a[index])
 
+    @override
     def __len__(self) -> int:
         return len(self.a)
 
+    @override
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         a = self.a.resolve(ctx)
+        assert isinstance(a, AbsLengths)
         return AbsLengths(a.values.min(keepdims=True))
 
+    @override
     def __repr__(self) -> str:
         return f"LengthsUnMinOp({self.a!r})"
 
+    @override
     def __str__(self) -> str:
         return f"unmin({self.a})"
 
+    @override
     def to_sympy(self) -> sympy.Expr:
         raise NotImplementedError("LengthsUnMinOp.to_sympy() is not implemented")
 
+    @override
     def units(self) -> set[str]:
         return self.a.units()
 
@@ -575,6 +608,7 @@ class LengthsUnMaxOp(Lengths):
     def __init__(self, a: Lengths):
         self.a = a
 
+    @override
     def __len__(self) -> int:
         return len(self.a)
 
@@ -582,19 +616,25 @@ class LengthsUnMaxOp(Lengths):
     def __getitem__(self, index) -> Lengths:
         return LengthsUnMaxOp(self.a[index])
 
+    @override
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         a = self.a.resolve(ctx)
+        assert isinstance(a, AbsLengths)
         return AbsLengths(a.values.max(keepdims=True))
 
+    @override
     def __repr__(self) -> str:
         return f"LengthsUnMaxOp({self.a!r})"
 
+    @override
     def __str__(self) -> str:
         return f"unmax({self.a})"
 
+    @override
     def to_sympy(self) -> sympy.Expr:
         raise NotImplementedError("LengthsUnMaxOp.to_sympy() is not implemented")
 
+    @override
     def units(self) -> set[str]:
         return self.a.units()
 
@@ -616,6 +656,7 @@ class LengthsMinOp(Lengths):
     def __getitem__(self, index) -> Lengths:
         return LengthsMinOp(self.a[index], self.b[index])
 
+    @override
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         a = self.a.resolve(ctx)
         b = self.b.resolve(ctx)
@@ -623,15 +664,19 @@ class LengthsMinOp(Lengths):
 
         return AbsLengths(np.minimum(a.values, b.values))
 
+    @override
     def __repr__(self) -> str:
         return f"LengthsMinOp({self.a!r})"
 
+    @override
     def __str__(self) -> str:
         return f"({self.a}).min({self.b})"
 
+    @override
     def to_sympy(self) -> sympy.Expr:
         return sympy.Min(self.a.to_sympy(), self.b.to_sympy())
 
+    @override
     def units(self) -> set[str]:
         return self.a.units().union(self.b.units())
 
@@ -646,6 +691,7 @@ class LengthsMaxOp(Lengths):
         self.a = a
         self.b = b
 
+    @override
     def __len__(self) -> int:
         return len(self.a)
 
@@ -653,6 +699,7 @@ class LengthsMaxOp(Lengths):
     def __getitem__(self, index) -> Lengths:
         return LengthsMaxOp(self.a[index], self.b[index])
 
+    @override
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
         a = self.a.resolve(ctx)
         b = self.b.resolve(ctx)
@@ -660,12 +707,15 @@ class LengthsMaxOp(Lengths):
 
         return AbsLengths(np.maximum(a.values, b.values))
 
+    @override
     def __repr__(self) -> str:
         return f"LengthsMaxOp({self.a!r})"
 
+    @override
     def __str__(self) -> str:
         return f"({self.a}).max({self.b})"
 
+    @override
     def to_sympy(self) -> sympy.Expr:
         return sympy.Max(self.a.to_sympy(), self.b.to_sympy())
 
@@ -755,6 +805,7 @@ class Transform(Resolvable):
         self.tx = tx
         self.ty = ty
 
+    @override
     def resolve(self, ctx: ResolveContext) -> AbsTransform:
         return AbsTransform(
             self.a, self.b, self.c, self.d, self.tx.resolve(ctx).scalar_value(), self.ty.resolve(ctx).scalar_value()
