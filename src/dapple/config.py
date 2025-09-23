@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from .colors import Colors, color
 from .coordinates import AbsLengths, mm
+from cmap import Colormap
 
 @dataclass
 class ConfigKey:
@@ -27,8 +28,8 @@ class ChooseTicksParams:
 class Config:
     pointsize: AbsLengths=field(default_factory=lambda: mm(0.4))
     pointcolor: Colors=field(default_factory=lambda: color("#333333"))
-    discrete_cmap: str = "colorcet_c1"
-    continuous_cmap: str = "colorcet:cet_l20"
+    discrete_cmap: Colormap=field(default_factory=lambda: Colormap("colorcet:cet_c1"))
+    continuous_cmap: Colormap = field(default_factory=lambda: Colormap("colorcet:cet_l20"))
     tick_coverage: str = "sub"
     tick_params: ChooseTicksParams = field(default_factory=lambda: ChooseTicksParams(
         k_min=2,

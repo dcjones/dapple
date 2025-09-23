@@ -94,7 +94,7 @@ def color_params(unit: str, values: Any):
     if isinstance(values, (ConfigKey, Colors)):
         return values
     else:
-        return UnscaledValues(values, values)
+        return UnscaledValues(unit, values)
 
 @dataclass
 class UnscaledUnaryOp(UnscaledExpr):
@@ -320,7 +320,7 @@ class ScaleDiscreteColor(ScaleDiscrete):
             default=0)
 
         for (i, value) in enumerate(values):
-            (label, target) = (self.labeler(value), value)
+            (label, target) = self._targets[value]
             self.map[value] = i
             labels.append(label)
             if target is None:
@@ -330,15 +330,13 @@ class ScaleDiscreteColor(ScaleDiscrete):
                 assert target >= 0
                 self.targets[i] = target
 
-        # TODO: do we want this to always contain 0 and 1? Do the colormaps wrap around?
-        self.targets -= self.targets.min()
-        self.targets /= self.targets.max()
+        self.targets /= len(values) + 1
         assert isinstance(self.colormap, Colormap)
         self.targets = self.colormap(self.targets)
         self.labels = np.array(labels)
 
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
-        indices = np.array(self.map[value] for value in values.values)
+        indices = np.fromiter((self.map[value] for value in values.values), dtype=int)
         return Colors(self.targets[indices,:])
 
     def ticks(self) -> Tuple[NDArray[np.str_], Colors]:

@@ -77,6 +77,9 @@ class Plot(Element):
 
         self.traverse_attributes(fit_expr, UnscaledExpr)
 
+        for scale in scaleset.values():
+            scale.finalize()
+
         # Layout plot
         root_configed = self.rewrite_attributes(
             lambda k, v: config.get(v), ConfigKey)
@@ -105,9 +108,6 @@ class Plot(Element):
         def update_bounds(_attr, expr: Lengths):
             bounds.update(expr)
         root.traverse_attributes(update_bounds, Lengths)
-
-        # TODO: I also want to fit coords to ticks in scales....
-
         coordset = bounds.solve()
 
         for child in root:
