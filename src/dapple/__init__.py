@@ -95,7 +95,7 @@ class Plot(Element):
 
         width = mm(ctx.coords["vw"].scale)
         height = mm(ctx.coords["vh"].scale)
-        root = self.layout(els, width, height)
+        root = self.layout(els, width, height, config)
 
         # Fit coordinates
         bounds = CoordBounds()
@@ -122,7 +122,7 @@ class Plot(Element):
 
         return svg_root
 
-    def layout(self, els: list[Element], width: AbsLengths, height: AbsLengths) -> Element:
+    def layout(self, els: list[Element], width: AbsLengths, height: AbsLengths, config: Config) -> Element:
         """
         Arrange child elements in a grid, based on the "dapple:position" attribute.
         """
@@ -146,8 +146,6 @@ class Plot(Element):
 
         nrow = 1 + ntop + nbottom
         ncol = 1 + nleft + nright
-
-        # REMEMBER: 0-based indexes!!!
 
         grid = np.full((nrow, ncol), None, dtype=object)
         i_focus = ntop
@@ -204,9 +202,9 @@ class Plot(Element):
         grid[i_focus, j_focus] = viewport(panel_nodes)
         grid[i_focus, j_focus].attrib["dapple:track-occupancy"] = True
 
-        return self._arrange_children(grid, i_focus, j_focus, width, height)
+        return self._arrange_children(grid, i_focus, j_focus, width, height, config)
 
-    def _arrange_children(self, grid: np.ndarray, i_focus: int, j_focus: int, width: AbsLengths, height: AbsLengths) -> Element:
+    def _arrange_children(self, grid: np.ndarray, i_focus: int, j_focus: int, width: AbsLengths, height: AbsLengths, config: Config) -> Element:
         nrows, ncols = grid.shape
 
         def cell_abs_bounds(cell: Element | None):
@@ -218,8 +216,34 @@ class Plot(Element):
 
         widths, heights = np.vectorize(cell_abs_bounds)(grid)
 
-        row_heights = heights.max(axis=1)
-        col_widths = widths.max(axis=0)
+        def scalar_or_zero(value: object):
+            if value is None:
+                return 0.0
+            elif isinstance(value, AbsLengths):
+                return value.scalar_value()
+            else:
+                raise ValueError(f"Unexpected type {type(value)}")
+
+        def cell_padding(cell: Element | None):
+            if cell is None:
+                return (0.0, 0.0, 0.0, 0.0)
+            else:
+                t = scalar_or_zero(cell.attrib.get("dapple:padding-top"))
+                b = scalar_or_zero(cell.attrib.get("dapple:padding-bottom"))
+                l = scalar_or_zero(cell.attrib.get("dapple:padding-left"))
+                r = scalar_or_zero(cell.attrib.get("dapple:padding-right"))
+
+                return (t, r, b, l)
+
+        pad_t, pad_r, pad_b, pad_l = np.vectorize(cell_padding)(grid)
+
+        row_pad_ts = pad_t.max(axis=1)
+        row_pad_bs = pad_b.max(axis=1)
+        col_pad_ls = pad_l.max(axis=0)
+        col_pad_rs = pad_r.max(axis=0)
+
+        row_heights = heights.max(axis=1) + row_pad_ts + row_pad_bs
+        col_widths = widths.max(axis=0) + col_pad_ls + col_pad_rs
 
         total_width = width.scalar_value()
         total_height = height.scalar_value()
@@ -236,14 +260,14 @@ class Plot(Element):
 
         root = Element("g")
         y = 0.0
-        for (i, row_height) in enumerate(row_heights):
+        for (i, (row_height, row_pad_t, row_pad_b)) in enumerate(zip(row_heights, row_pad_ts, row_pad_bs)):
             if i == i_focus:
                 vp_height = focus_height
             else:
                 vp_height = row_heights[i]
 
             x = 0.0
-            for (j, col_width) in enumerate(col_widths):
+            for (j, (col_width, col_pad_l, col_pad_r)) in enumerate(zip(col_widths, col_pad_ls, col_pad_rs)):
                 if j == j_focus:
                     vp_width = focus_width
                 else:
@@ -252,10 +276,10 @@ class Plot(Element):
                 if grid[i, j] is not None:
                     root.append(viewport(
                         [viewport([grid[i, j]])],
-                        x=mm(x),
-                        y=mm(y),
-                        width=mm(vp_width),
-                        height=mm(vp_height),
+                        x=mm(x + col_pad_l),
+                        y=mm(y + row_pad_t),
+                        width=mm(vp_width - col_pad_l - col_pad_r),
+                        height=mm(vp_height - row_pad_t - row_pad_b),
                     ))
                 x += vp_width
 

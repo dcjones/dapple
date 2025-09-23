@@ -17,6 +17,10 @@ class XTicks(Element):
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.BottomLeft,
+            "dapple:padding-top": ConfigKey("padding_std"),
+            "dapple:padding-bottom": ConfigKey("padding_min"),
+            "dapple:padding-left": ConfigKey("padding_nil"),
+            "dapple:padding-right": ConfigKey("padding_nil"),
             "stroke": stroke,
             "stroke-width": stroke_width,
             "tick_length": tick_length,
@@ -89,6 +93,10 @@ class YTicks(Element):
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.LeftTop,
+            "dapple:padding-top": ConfigKey("padding_nil"),
+            "dapple:padding-bottom": ConfigKey("padding_nil"),
+            "dapple:padding-left": ConfigKey("padding_min"),
+            "dapple:padding-right": ConfigKey("padding_std"),
             "stroke": stroke,
             "stroke-width": stroke_width,
             "tick_length": tick_length,

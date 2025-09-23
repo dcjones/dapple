@@ -20,6 +20,7 @@ class XLabel(Element):
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.BottomCenter,
+            "dapple:padding-top": ConfigKey("padding_std"),
             "text": text,
             "font_family": font_family,
             "font_size": font_size,
@@ -97,6 +98,7 @@ class YLabel(Element):
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.LeftCenter,
+            "dapple:padding-right": ConfigKey("padding_std"),
             "text": text,
             "font_family": font_family,
             "font_size": font_size,
@@ -180,6 +182,7 @@ class Title(Element):
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.TopCenter,
+            "dapple:padding-bottom": ConfigKey("padding_std"),
             "text": text,
             "font_family": font_family,
             "font_size": font_size,

@@ -46,6 +46,13 @@ class Config:
     tick_stroke: Colors=field(default_factory=lambda: color("#333333"))
     tick_length: AbsLengths=field(default_factory=lambda: mm(2.0))
 
+    # Layout configuration
+    # Three predefined padding values are used, representing (typically) no padding,
+    # minimal padding, and standard padding.
+    padding_nil: AbsLengths=field(default_factory=lambda: mm(0))
+    padding_min: AbsLengths=field(default_factory=lambda: mm(0.5))
+    padding_std: AbsLengths=field(default_factory=lambda: mm(1.5))
+
     # Label configuration
     label_font_family: str = "DejaVu Sans"
     label_font_size: AbsLengths=field(default_factory=lambda: mm(3.5))
