@@ -17,14 +17,15 @@ from .scales import Scale
 from .config import Config, ConfigKey
 from .layout import Position
 from .elements import Element, viewport
+from .geometry import xgrids, ygrids, xticks, yticks, xticklabels, yticklabels
 
 
 class Plot(Element):
-    def __init__(self):
-        # TODO:
-        # - default scales and such
-
+    def __init__(self, defaults=[xgrids, ygrids, xticks, yticks, xticklabels, yticklabels]):
         super().__init__("dapple:plot")
+
+        for default in defaults:
+            self.append(default())
 
     @override
     def resolve(self, ctx: ResolveContext) -> Element:
