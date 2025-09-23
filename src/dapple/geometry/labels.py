@@ -271,6 +271,9 @@ class XTickLabels(Element):
         assert isinstance(font_family, str)
         assert isinstance(font_size, AbsLengths)
 
+        if "x" not in ctx.scales:
+            return Element("g")
+
         x_scale = ctx.scales["x"]
         x_labels, x_ticks = x_scale.ticks()
         assert isinstance(x_ticks, Lengths)
@@ -366,6 +369,9 @@ class YTickLabels(Element):
 
         assert isinstance(font_family, str)
         assert isinstance(font_size, AbsLengths)
+
+        if "y" not in ctx.scales:
+            return Element("g")
 
         y_scale = ctx.scales["y"]
         y_labels, y_ticks = y_scale.ticks()

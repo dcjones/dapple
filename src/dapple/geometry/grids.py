@@ -19,7 +19,8 @@ class XGrids(Element):
         super().__init__("dapple:xgrids", attrib)
 
     def resolve(self, ctx: ResolveContext) -> Element:
-        assert "x" in ctx.scales
+        if "x" not in ctx.scales:
+            return Element("g")
 
         x_scale = ctx.scales["x"]
         _x_labels, x_ticks = x_scale.ticks()
@@ -63,7 +64,8 @@ class YGrids(Element):
         super().__init__("dapple:ygrids", attrib)
 
     def resolve(self, ctx: ResolveContext) -> Element:
-        assert "y" in ctx.scales
+        if "y" not in ctx.scales:
+            return Element("g")
 
         y_scale = ctx.scales["y"]
         _y_labels, y_ticks = y_scale.ticks()
