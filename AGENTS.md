@@ -12,3 +12,5 @@ Follow some basic guidelines when writing code.
   * Use type annotations whenever possible.
   * Don't add comments to code that is fairly straightforward.
   * Put simple examples of features in the `debug` directory.
+  * Prefer `VectorizedElement` to constructing many similar `Element` objects.
+  * `AbsLengths` objects are constructed with `mm`.

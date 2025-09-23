@@ -17,7 +17,7 @@ from .scales import Scale
 from .config import Config, ConfigKey
 from .layout import Position
 from .elements import Element, viewport
-from .geometry import xgrids, ygrids, xticks, yticks, xticklabels, yticklabels
+from .geometry import xgrids, ygrids, xticks, yticks, xticklabels, yticklabels, key
 
 
 class Plot(Element):
