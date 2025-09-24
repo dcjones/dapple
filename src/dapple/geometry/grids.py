@@ -1,5 +1,5 @@
 from ..elements import Element, VectorizedElement
-from ..coordinates import ResolveContext, Lengths, vh
+from ..coordinates import ResolveContext, Lengths, vh, vw
 from ..layout import Position
 from ..config import ConfigKey
 
@@ -81,8 +81,8 @@ class YGrids(Element):
         g.append(
             VectorizedElement(
                 "line", {
-                    "x1": vh(0),
-                    "x2": vh(1),
+                    "x1": vw(0),
+                    "x2": vw(1),
                     "y1": y_ticks,
                     "y2": y_ticks,
                 }
