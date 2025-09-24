@@ -330,8 +330,17 @@ class ScaleDiscreteColor(ScaleDiscrete):
                 assert target >= 0
                 self.targets[i] = target
 
-        self.targets /= len(values) + 1
         assert isinstance(self.colormap, Colormap)
+
+        # spacing depends on whether the colormap is cyclic or not
+        c0 = np.asarray(self.colormap(0.0).rgba)
+        c1 = np.asarray(self.colormap(1.0).rgba)
+        iscyclic = np.sqrt(((c0 - c1)**2).sum()) < 1e-1
+        if iscyclic:
+            self.targets /= self.targets.max() + 1
+        else:
+            self.targets /= self.targets.max()
+
         self.targets = self.colormap(self.targets)
         self.labels = np.array(labels)
 

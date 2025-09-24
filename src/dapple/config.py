@@ -28,7 +28,7 @@ class ChooseTicksParams:
 class Config:
     pointsize: AbsLengths=field(default_factory=lambda: mm(0.4))
     pointcolor: Colors=field(default_factory=lambda: color("#333333"))
-    discrete_cmap: Colormap=field(default_factory=lambda: Colormap("colorcet:cet_c1"))
+    discrete_cmap: Colormap=field(default_factory=lambda: Colormap("colorcet:cet_c6"))
     continuous_cmap: Colormap = field(default_factory=lambda: Colormap("colorcet:cet_l20"))
     tick_coverage: str = "sub"
     tick_params: ChooseTicksParams = field(default_factory=lambda: ChooseTicksParams(
