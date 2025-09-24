@@ -108,7 +108,7 @@ class Plot(Element):
         def update_bounds(_attr, expr: Lengths):
             bounds.update(expr)
         root.traverse_attributes(update_bounds, Lengths)
-        coordset = bounds.solve()
+        coordset = bounds.solve(set(["y"]))
 
         for child in root:
             grandchild = child[0]

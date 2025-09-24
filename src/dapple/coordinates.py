@@ -846,7 +846,7 @@ class CoordBounds:
             else:
                 self.bounds[unit] = (ticks_min, ticks_max)
 
-    def solve(self) -> CoordSet:
+    def solve(self, flipped: set[str]) -> CoordSet:
         vw_sym, vh_sym, scale_sym, translate_sym = sympy.symbols("vw vh scale translate")
 
         coordset = dict()
@@ -863,7 +863,7 @@ class CoordBounds:
             upper_expr = self._rewrite_sympy_expression(scale_sym, translate_sym, upper.to_sympy(), unit)
 
             solution = sympy.solve(
-                [lower_expr, upper_expr - ref_unit],
+                [lower_expr - ref_unit, upper_expr] if unit in flipped else [lower_expr, upper_expr - ref_unit],
                 [scale_sym, translate_sym]
             )
 
