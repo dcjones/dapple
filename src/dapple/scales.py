@@ -591,8 +591,6 @@ class ScaleContinuous(Scale):
 
             oom -= 1
 
-        print((self.unit, self.min, self.max, high_score))
-
         if not np.isfinite(high_score):
             t0 = round(self.min - 1.0)
             t1 = round(self.min + 1.0)
