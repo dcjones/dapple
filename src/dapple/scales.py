@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from .colors import Colors
@@ -15,6 +14,7 @@ from typing import Any, Mapping, Sequence, Tuple, Callable, Optional, Union, Typ
 from numbers import Number
 import numpy as np
 import operator
+
 
 class UnscaledExpr(ABC):
     """
@@ -57,9 +57,9 @@ class UnscaledValues(UnscaledExpr):
 
     unit: str
     values: Iterable
-    typ: CtxLenType=CtxLenType.Vec
+    typ: CtxLenType = CtxLenType.Vec
 
-    def __init__(self, unit: str, values: Any, typ: CtxLenType=CtxLenType.Vec):
+    def __init__(self, unit: str, values: Any, typ: CtxLenType = CtxLenType.Vec):
         if not isinstance(values, Iterable):
             values = [values]
         self.unit = unit
@@ -84,17 +84,20 @@ class UnscaledValues(UnscaledExpr):
                     return False
             return True
 
+
 def length_params(unit: str, values: Any, typ: CtxLenType):
     if isinstance(values, (ConfigKey, Lengths)):
         return values
     else:
         return UnscaledValues(unit, values, typ)
 
+
 def color_params(unit: str, values: Any):
     if isinstance(values, (ConfigKey, Colors)):
         return values
     else:
         return UnscaledValues(unit, values)
+
 
 @dataclass
 class UnscaledUnaryOp(UnscaledExpr):
@@ -111,7 +114,9 @@ class UnscaledUnaryOp(UnscaledExpr):
 
     def accept_scale(self, scaleset: ScaleSet) -> Lengths | Colors:
         return self.op(
-            self.a.accept_scale(scaleset) if isinstance(self.a, UnscaledExpr) else self.a
+            self.a.accept_scale(scaleset)
+            if isinstance(self.a, UnscaledExpr)
+            else self.a
         )
 
     def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]):
@@ -137,8 +142,12 @@ class UnscaledBinaryOp(UnscaledExpr):
 
     def accept_scale(self, scaleset: ScaleSet) -> Lengths | Colors:
         return self.op(
-            self.a.accept_scale(scaleset) if isinstance(self.a, UnscaledExpr) else self.a,
-            self.b.accept_scale(scaleset) if isinstance(self.b, UnscaledExpr) else self.b
+            self.a.accept_scale(scaleset)
+            if isinstance(self.a, UnscaledExpr)
+            else self.a,
+            self.b.accept_scale(scaleset)
+            if isinstance(self.b, UnscaledExpr)
+            else self.b,
         )
 
     def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]):
@@ -146,6 +155,7 @@ class UnscaledBinaryOp(UnscaledExpr):
             self.a.accept_visitor(visitor)
         if isinstance(self.b, UnscaledExpr):
             self.b.accept_visitor(visitor)
+
 
 class Scale(ABC):
     """
@@ -183,6 +193,7 @@ class ScaleDiscrete(Scale):
     """
     Disecrete scale which can map any collection of (hashable) values onto lengths or colors.
     """
+
     _unit: str
     fixed: bool
     labeler: Callable[[Any], str]
@@ -196,8 +207,13 @@ class ScaleDiscrete(Scale):
     _targets: dict[Any, Tuple[str, Any]]
 
     def __init__(
-            self, unit: str, values: Mapping | Sequence | None = None,
-            fixed: bool=False, labeler: Callable[[Any], str] = str, sort_by: None | Callable[[Any], Any] = lambda x: x):
+        self,
+        unit: str,
+        values: Mapping | Sequence | None = None,
+        fixed: bool = False,
+        labeler: Callable[[Any], str] = str,
+        sort_by: None | Callable[[Any], Any] = lambda x: x,
+    ):
         self._unit = unit
         self.fixed = fixed
         self.labeler = labeler
@@ -207,7 +223,7 @@ class ScaleDiscrete(Scale):
         if values == None:
             pass
         elif isinstance(values, Mapping):
-            for (value, target) in values.items():
+            for value, target in values.items():
                 if value in self.map:
                     raise ValueError(f"Duplicate value {value} in {values}")
 
@@ -235,7 +251,9 @@ class ScaleDiscrete(Scale):
         for value in values.values:
             if value not in self._targets:
                 if self.fixed:
-                    raise ValueError(f"Fixed scale cannot be updated with new value {value}")
+                    raise ValueError(
+                        f"Fixed scale cannot be updated with new value {value}"
+                    )
 
                 self._targets[value] = (self.labeler(value), None)
 
@@ -246,8 +264,13 @@ class ScaleDiscreteLength(ScaleDiscrete):
     """
 
     def __init__(
-            self, unit: str, values: Mapping | Sequence | None = None,
-            fixed: bool=False, labeler: Callable[[Any], str] = str, sort_by: None | Callable[[Any], Any] = lambda x: x):
+        self,
+        unit: str,
+        values: Mapping | Sequence | None = None,
+        fixed: bool = False,
+        labeler: Callable[[Any], str] = str,
+        sort_by: None | Callable[[Any], Any] = lambda x: x,
+    ):
         super().__init__(unit, values, fixed, labeler, sort_by)
 
     def finalize(self):
@@ -260,12 +283,15 @@ class ScaleDiscreteLength(ScaleDiscrete):
         self.map = dict()
         labels = []
 
-        next_target = max(filter(
-            lambda target: target is not None,
-            map(lambda v: v[1], self._targets.values())),
-            default=0)
+        next_target = max(
+            filter(
+                lambda target: target is not None,
+                map(lambda v: v[1], self._targets.values()),
+            ),
+            default=0,
+        )
 
-        for (i, value) in enumerate(values):
+        for i, value in enumerate(values):
             (label, target) = self._targets[value]
             self.map[value] = i
             labels.append(label)
@@ -289,16 +315,21 @@ class ScaleDiscreteLength(ScaleDiscrete):
 def xdiscrete(*args, **kwargs) -> ScaleDiscreteLength:
     return ScaleDiscreteLength("x", *args, **kwargs)
 
+
 def ydiscrete(*args, **kwargs) -> ScaleDiscreteLength:
     return ScaleDiscreteLength("y", *args, **kwargs)
 
 
 class ScaleDiscreteColor(ScaleDiscrete):
     def __init__(
-            self, unit: str,
-            colormap: ColormapLike | ConfigKey=ConfigKey("discrete_cmap"),
-            values: Mapping | Sequence | None = None,
-            fixed: bool=False, labeler: Callable[[Any], str] = str, sort_by: None | Callable[[Any], Any] = lambda x: x):
+        self,
+        unit: str,
+        colormap: ColormapLike | ConfigKey = ConfigKey("discrete_cmap"),
+        values: Mapping | Sequence | None = None,
+        fixed: bool = False,
+        labeler: Callable[[Any], str] = str,
+        sort_by: None | Callable[[Any], Any] = lambda x: x,
+    ):
         if not isinstance(colormap, ConfigKey):
             colormap = Colormap(colormap)
         self.colormap = colormap
@@ -314,12 +345,15 @@ class ScaleDiscreteColor(ScaleDiscrete):
         self.map = dict()
         labels = []
 
-        next_target = max(filter(
-            lambda target: target is not None,
-            map(lambda v: v[1], self._targets.values())),
-            default=0)
+        next_target = max(
+            filter(
+                lambda target: target is not None,
+                map(lambda v: v[1], self._targets.values()),
+            ),
+            default=0,
+        )
 
-        for (i, value) in enumerate(values):
+        for i, value in enumerate(values):
             (label, target) = self._targets[value]
             self.map[value] = i
             labels.append(label)
@@ -335,7 +369,7 @@ class ScaleDiscreteColor(ScaleDiscrete):
         # spacing depends on whether the colormap is cyclic or not
         c0 = np.asarray(self.colormap(0.0).rgba)
         c1 = np.asarray(self.colormap(1.0).rgba)
-        iscyclic = np.sqrt(((c0 - c1)**2).sum()) < 1e-1
+        iscyclic = np.sqrt(((c0 - c1) ** 2).sum()) < 1e-1
         if iscyclic:
             self.targets /= self.targets.max() + 1
         else:
@@ -346,24 +380,31 @@ class ScaleDiscreteColor(ScaleDiscrete):
 
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
         indices = np.fromiter((self.map[value] for value in values.values), dtype=int)
-        return Colors(self.targets[indices,:])
+        return Colors(self.targets[indices, :])
 
     def ticks(self) -> Tuple[NDArray[np.str_], Colors]:
         return self.labels, Colors(self.targets)
 
+
 def colordiscrete(*args, **kwargs) -> ScaleDiscreteColor:
     return ScaleDiscreteColor("color", *args, **kwargs)
+
 
 TickStep = namedtuple("TickStep", ["tick_step", "subtick_step", "niceness"])
 
 TICK_STEP_OPTIONS = [
-    TickStep(1.0, 0.5, 1.0), TickStep(5.0, 1.0, 0.9), TickStep(2.0, 1.0, 0.7), TickStep(2.5, 0.5, 0.5), TickStep(3.0, 1.0, 0.2)
+    TickStep(1.0, 0.5, 1.0),
+    TickStep(5.0, 1.0, 0.9),
+    TickStep(2.0, 1.0, 0.7),
+    TickStep(2.5, 0.5, 0.5),
+    TickStep(3.0, 1.0, 0.2),
 ]
 
+
 class TickCoverage(Enum):
-    Flexible=1
-    StrictSub=2
-    StrictSuper=3
+    Flexible = 1
+    StrictSub = 2
+    StrictSuper = 3
 
     @classmethod
     def from_str(cls, value: str) -> "TickCoverage":
@@ -376,6 +417,7 @@ class TickCoverage(Enum):
             return cls.StrictSuper
         else:
             raise ValueError(f"Invalid tick coverage: {value}")
+
 
 def _label_numbers(xs: np.ndarray) -> NDArray[np.str_]:
     MAX_PRECISION = 5
@@ -392,9 +434,11 @@ def _label_numbers(xs: np.ndarray) -> NDArray[np.str_]:
 
     return np.array([xstr[:-trim] for xstr in xstrs], dtype=str)
 
+
 # TODO:
 #  - Bijections (i.e. log scales)
 #  - Fixed tick spans
+
 
 class ScaleContinuous(Scale):
     _unit: str
@@ -408,9 +452,13 @@ class ScaleContinuous(Scale):
     _subtick_labels: Optional[np.ndarray]
 
     def __init__(
-            self, unit: str,
-            tick_coverage: Union[TickCoverage, ConfigKey]=ConfigKey("tick_coverage"),
-            choose_tick_params: Union[ChooseTicksParams, ConfigKey]=ConfigKey("tick_params")):
+        self,
+        unit: str,
+        tick_coverage: Union[TickCoverage, ConfigKey] = ConfigKey("tick_coverage"),
+        choose_tick_params: Union[ChooseTicksParams, ConfigKey] = ConfigKey(
+            "tick_params"
+        ),
+    ):
         # TODO: We should be able to pass in min and max
         # and also have a `fixed` argument like discrete scales.
 
@@ -428,7 +476,9 @@ class ScaleContinuous(Scale):
         try:
             return np.float64(value)
         except ValueError:
-            raise ValueError(f"Cannot use continuous scale for unit '{self.unit}' with non-numerical value: {value}")
+            raise ValueError(
+                f"Cannot use continuous scale for unit '{self.unit}' with non-numerical value: {value}"
+            )
 
     @property
     def unit(self) -> str:
@@ -464,7 +514,9 @@ class ScaleContinuous(Scale):
         """
 
         if self.min is None or self.max is None:
-            raise ValueError(f"Cannot choose ticks for unit {self.unit} with no min or max")
+            raise ValueError(
+                f"Cannot choose ticks for unit {self.unit} with no min or max"
+            )
 
         scale_span = self.max - self.min
 
@@ -486,9 +538,9 @@ class ScaleContinuous(Scale):
 
         # Consider all orders of magnitude where we can span the range with k_max ticks
         oom = np.ceil(np.log10(scale_span))
-        while params.k_max * 10.0**(oom+1) > scale_span:
+        while params.k_max * 10.0 ** (oom + 1) > scale_span:
             # Consider numbers of ticks
-            for k in range(params.k_min, params.k_max+1):
+            for k in range(params.k_min, params.k_max + 1):
                 # Consider steps
                 for step in TICK_STEP_OPTIONS:
                     step_size = step.tick_step * 10.0**oom
@@ -501,22 +553,30 @@ class ScaleContinuous(Scale):
                     while t0 <= self.max:
                         score = step.niceness * params.niceness_weight
 
-                        tk = t0 + (k-1)*step_size
+                        tk = t0 + (k - 1) * step_size
 
-                        has_zero = t0 <= 0 and np.abs(t0/step_size) < k
-                        if not has_zero:
+                        has_zero = t0 <= 0 and np.abs(t0 / step_size) < k
+                        if has_zero:
                             score += params.simplicity_weight
 
-                        if 0 < k and k < 2*params.k_ideal:
-                            score += (1 - abs(k - params.k_ideal) / params.k_ideal) * params.granularity_weight
+                        if 0 < k and k < 2 * params.k_ideal:
+                            score += (
+                                1 - abs(k - params.k_ideal) / params.k_ideal
+                            ) * params.granularity_weight
 
-                        coverage_jaccard = (min(self.max, tk) - max(self.min, t0)) / (max(self.max, tk) - min(self.min, t0))
+                        coverage_jaccard = (min(self.max, tk) - max(self.min, t0)) / (
+                            max(self.max, tk) - min(self.min, t0)
+                        )
                         score += coverage_jaccard * params.coverage_weight
 
                         # strict-ish limits on coverage
-                        if self.tick_coverage == TickCoverage.StrictSub and (t0 < self.min or tk > self.max):
+                        if self.tick_coverage == TickCoverage.StrictSub and (
+                            t0 < self.min or tk > self.max
+                        ):
                             score -= CONSTRAINT_PENALTY
-                        elif self.tick_coverage == TickCoverage.StrictSuper and (t0 > self.min or tk < self.max):
+                        elif self.tick_coverage == TickCoverage.StrictSuper and (
+                            t0 > self.min or tk < self.max
+                        ):
                             score -= CONSTRAINT_PENALTY
 
                         if score > high_score:
@@ -531,6 +591,8 @@ class ScaleContinuous(Scale):
 
             oom -= 1
 
+        print((self.unit, self.min, self.max, high_score))
+
         if not np.isfinite(high_score):
             t0 = round(self.min - 1.0)
             t1 = round(self.min + 1.0)
@@ -540,25 +602,30 @@ class ScaleContinuous(Scale):
         step_size = step_best * 10.0**oom_best
         ticks = np.zeros(k_best, dtype=float)
         for i in range(k_best):
-            ticks[i] = t0_best + i*step_size
+            ticks[i] = t0_best + i * step_size
 
         # subticks
-        k_sub = int(round((k_best - 1) * step_best/substep_best))
+        k_sub = int(round((k_best - 1) * step_best / substep_best))
         step_size = substep_best * 10.0**oom_best
         subticks = np.zeros(k_sub, dtype=float)
         for i in range(k_sub):
-            subticks[i] = t0_best + i*step_size
+            subticks[i] = t0_best + i * step_size
 
         return ticks, subticks
+
 
 class ScaleContinuousColor(ScaleContinuous):
     colormap: Union[Colormap, ConfigKey]
 
     def __init__(
-            self, unit: str,
-            colormap: Union[ColormapLike, ConfigKey]=ConfigKey("continuous_cmap"),
-            tick_coverage: Union[TickCoverage, ConfigKey]=ConfigKey("tick_coverage"),
-            choose_tick_params: Union[ChooseTicksParams, ConfigKey]=ConfigKey("tick_params")):
+        self,
+        unit: str,
+        colormap: Union[ColormapLike, ConfigKey] = ConfigKey("continuous_cmap"),
+        tick_coverage: Union[TickCoverage, ConfigKey] = ConfigKey("tick_coverage"),
+        choose_tick_params: Union[ChooseTicksParams, ConfigKey] = ConfigKey(
+            "tick_params"
+        ),
+    ):
         if not isinstance(colormap, ConfigKey):
             colormap = Colormap(colormap)
         self.colormap = colormap
@@ -571,12 +638,18 @@ class ScaleContinuousColor(ScaleContinuous):
         assert isinstance(self.colormap, Colormap)
 
         span = self.max - self.min
-        scaled_values = self.colormap(np.fromiter(
-            ((self._cast_value(value) - self.min) / span for value in values.values),
-            dtype=np.float64
-        ))
+        scaled_values = self.colormap(
+            np.fromiter(
+                (
+                    (self._cast_value(value) - self.min) / span
+                    for value in values.values
+                ),
+                dtype=np.float64,
+            )
+        )
 
         return Colors(scaled_values)
+
 
 def colorcontinuous(*args, **kwargs) -> ScaleContinuousColor:
     return ScaleContinuousColor(*args, **kwargs)
@@ -584,17 +657,20 @@ def colorcontinuous(*args, **kwargs) -> ScaleContinuousColor:
 
 class ScaleContinuousLength(ScaleContinuous):
     def __init__(
-            self, unit: str,
-            tick_coverage: Union[TickCoverage, ConfigKey]=ConfigKey("tick_coverage"),
-            choose_tick_params: Union[ChooseTicksParams, ConfigKey]=ConfigKey("tick_params")):
+        self,
+        unit: str,
+        tick_coverage: Union[TickCoverage, ConfigKey] = ConfigKey("tick_coverage"),
+        choose_tick_params: Union[ChooseTicksParams, ConfigKey] = ConfigKey(
+            "tick_params"
+        ),
+    ):
         super().__init__(unit, tick_coverage, choose_tick_params)
 
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
         assert values.unit == self.unit
 
         scaled_values = np.fromiter(
-            (self._cast_value(value) for value in values.values),
-            dtype=np.float64
+            (self._cast_value(value) for value in values.values), dtype=np.float64
         )
 
         return CtxLengths(scaled_values, values.unit, values.typ)
@@ -603,11 +679,14 @@ class ScaleContinuousLength(ScaleContinuous):
 def xcontinuous(*args, **kwargs) -> ScaleContinuousLength:
     return ScaleContinuousLength("x", *args, **kwargs)
 
+
 def ycontinuous(*args, **kwargs) -> ScaleContinuousLength:
     return ScaleContinuousLength("y", *args, **kwargs)
 
+
 def sizecontinuous(*args, **kwargs) -> ScaleContinuousLength:
     return ScaleContinuousLength("size", *args, **kwargs)
+
 
 _default_scales = {
     "x": (xdiscrete, xcontinuous),
