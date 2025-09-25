@@ -1,4 +1,3 @@
-
 from numbers import Number
 from typing import TextIO, BinaryIO, override
 from io import StringIO
@@ -7,20 +6,50 @@ import sys
 
 from .elements import Element, viewport
 from .geometry import xgrids, ygrids, xticks, yticks, xticklabels, yticklabels, key
-from .coordinates import \
-    CoordBounds, Serializable, AbsCoordSet, AbsCoordTransform, Lengths, \
-    AbsLengths, ResolveContext, Lengths, abslengths, \
-    mm, cm, pt, inch, cx, cxv, cy, cyv, vw, vwv, vh, vhv
+from .coordinates import (
+    CoordBounds,
+    Serializable,
+    AbsCoordSet,
+    AbsCoordTransform,
+    Lengths,
+    AbsLengths,
+    ResolveContext,
+    Lengths,
+    abslengths,
+    mm,
+    cm,
+    pt,
+    inch,
+    cx,
+    cxv,
+    cy,
+    cyv,
+    vw,
+    vwv,
+    vh,
+    vhv,
+)
 from .occupancy import Occupancy
 from .clipboard import copy_svg, ClipboardError
-from .scales import UnscaledValues, UnscaledExpr, ScaleSet, ScaleContinuousColor, ScaleDiscreteColor, ScaleContinuousLength, ScaleDiscreteLength
+from .scales import (
+    UnscaledValues,
+    UnscaledExpr,
+    ScaleSet,
+    ScaleContinuousColor,
+    ScaleDiscreteColor,
+    ScaleContinuousLength,
+    ScaleDiscreteLength,
+)
 from .export import svg_to_png, svg_to_pdf, ExportError
 from .scales import Scale
 from .config import Config, ConfigKey
 from .layout import Position
 
+
 class Plot(Element):
-    def __init__(self, defaults=[xgrids, ygrids, xticks, yticks, xticklabels, yticklabels]):
+    def __init__(
+        self, defaults=[xgrids, ygrids, xticks, yticks, xticklabels, yticklabels]
+    ):
         super().__init__("dapple:plot")
 
         for default in defaults:
@@ -44,15 +73,18 @@ class Plot(Element):
         assert isinstance(scaleset, dict)
 
         all_numeric = dict()
+
         def update_all_numeric_values(values: UnscaledValues):
-            all_numeric[values.unit] = all_numeric.get(values.unit, True) & values.all_numeric()
+            all_numeric[values.unit] = (
+                all_numeric.get(values.unit, True) & values.all_numeric()
+            )
 
         def update_all_numeric_expr(_attr, values: UnscaledExpr):
             values.accept_visitor(update_all_numeric_values)
 
         self.traverse_attributes(update_all_numeric_expr, UnscaledExpr)
 
-        for (unit, numeric) in all_numeric.items():
+        for unit, numeric in all_numeric.items():
             if unit in scaleset:
                 continue
 
@@ -80,14 +112,13 @@ class Plot(Element):
             scale.finalize()
 
         # Layout plot
-        root_configed = self.rewrite_attributes(
-            lambda k, v: config.get(v), ConfigKey)
+        root_configed = self.rewrite_attributes(lambda k, v: config.get(v), ConfigKey)
 
         def scale_expr(_attr, expr: object):
             assert isinstance(expr, UnscaledExpr)
             return expr.accept_scale(scaleset)
 
-        root_scaled =  root_configed.rewrite_attributes(scale_expr, UnscaledExpr)
+        root_scaled = root_configed.rewrite_attributes(scale_expr, UnscaledExpr)
 
         def scale_elements(el: Element):
             el.apply_scales(scaleset)
@@ -106,6 +137,7 @@ class Plot(Element):
 
         def update_bounds(_attr, expr: Lengths):
             bounds.update(expr)
+
         root.traverse_attributes(update_bounds, Lengths)
         coordset = bounds.solve(set(["y"]))
 
@@ -122,7 +154,9 @@ class Plot(Element):
 
         return svg_root
 
-    def layout(self, els: list[Element], width: AbsLengths, height: AbsLengths, config: Config) -> Element:
+    def layout(
+        self, els: list[Element], width: AbsLengths, height: AbsLengths, config: Config
+    ) -> Element:
         """
         Arrange child elements in a grid, based on the "dapple:position" attribute.
         """
@@ -198,13 +232,23 @@ class Plot(Element):
         assert next_top == -1
         assert next_bottom == nrow
 
-        panel_nodes = sum([below_nodes, unpositioned_nodes, above_nodes], []) # concatenate
+        panel_nodes = sum(
+            [below_nodes, unpositioned_nodes, above_nodes], []
+        )  # concatenate
         grid[i_focus, j_focus] = viewport(panel_nodes)
         grid[i_focus, j_focus].attrib["dapple:track-occupancy"] = True
 
         return self._arrange_children(grid, i_focus, j_focus, width, height, config)
 
-    def _arrange_children(self, grid: np.ndarray, i_focus: int, j_focus: int, width: AbsLengths, height: AbsLengths, config: Config) -> Element:
+    def _arrange_children(
+        self,
+        grid: np.ndarray,
+        i_focus: int,
+        j_focus: int,
+        width: AbsLengths,
+        height: AbsLengths,
+        config: Config,
+    ) -> Element:
         nrows, ncols = grid.shape
 
         def cell_abs_bounds(cell: Element | None):
@@ -260,35 +304,46 @@ class Plot(Element):
 
         root = Element("g")
         y = 0.0
-        for (i, (row_height, row_pad_t, row_pad_b)) in enumerate(zip(row_heights, row_pad_ts, row_pad_bs)):
+        for i, (row_height, row_pad_t, row_pad_b) in enumerate(
+            zip(row_heights, row_pad_ts, row_pad_bs)
+        ):
             if i == i_focus:
                 vp_height = focus_height
             else:
                 vp_height = row_heights[i]
 
             x = 0.0
-            for (j, (col_width, col_pad_l, col_pad_r)) in enumerate(zip(col_widths, col_pad_ls, col_pad_rs)):
+            for j, (col_width, col_pad_l, col_pad_r) in enumerate(
+                zip(col_widths, col_pad_ls, col_pad_rs)
+            ):
                 if j == j_focus:
                     vp_width = focus_width
                 else:
                     vp_width = col_widths[j]
 
                 if grid[i, j] is not None:
-                    root.append(viewport(
-                        [viewport([grid[i, j]])],
-                        x=mm(x + col_pad_l),
-                        y=mm(y + row_pad_t),
-                        width=mm(vp_width - col_pad_l - col_pad_r),
-                        height=mm(vp_height - row_pad_t - row_pad_b),
-                    ))
+                    root.append(
+                        viewport(
+                            [viewport([grid[i, j]])],
+                            x=mm(x + col_pad_l),
+                            y=mm(y + row_pad_t),
+                            width=mm(vp_width - col_pad_l - col_pad_r),
+                            height=mm(vp_height - row_pad_t - row_pad_b),
+                        )
+                    )
                 x += vp_width
 
             y += vp_height
 
         return root
 
-
-    def svg(self, width: AbsLengths | Number, height: AbsLengths | Number, output: None | str | TextIO=None, clip: bool=False):
+    def svg(
+        self,
+        width: AbsLengths | Number,
+        height: AbsLengths | Number,
+        output: None | str | TextIO = None,
+        clip: bool = False,
+    ):
         """
         Given an absolute plot size, resolve the the plot into a pure SVG.
         """
@@ -303,18 +358,14 @@ class Plot(Element):
 
         coords = {
             "vw": AbsCoordTransform(width.scalar_value(), 0.0),
-            "vh": AbsCoordTransform(height.scalar_value(), 0.0)
+            "vh": AbsCoordTransform(height.scalar_value(), 0.0),
         }
         occupancy = Occupancy(width, height)
 
         scales = self.attrib.get("dapple:scaleset", ScaleSet())
         assert isinstance(scales, dict)
 
-        ctx = ResolveContext(
-            coords,
-            scales,
-            occupancy
-        )
+        ctx = ResolveContext(coords, scales, occupancy)
 
         resolved_plot = self.resolve(ctx)
         assert isinstance(resolved_plot, Element)
@@ -348,9 +399,15 @@ class Plot(Element):
 
         return svg_root
 
-    def png(self, width: AbsLengths | Number, height: AbsLengths | Number,
-            output: None | str | BinaryIO=None, dpi: int=96,
-            pixel_width: None | int=None, pixel_height: None | int=None) -> None | bytes:
+    def png(
+        self,
+        width: AbsLengths | Number,
+        height: AbsLengths | Number,
+        output: None | str | BinaryIO = None,
+        dpi: int = 96,
+        pixel_width: None | int = None,
+        pixel_height: None | int = None,
+    ) -> None | bytes:
         """
         Export plot as PNG using Inkscape.
 
@@ -379,14 +436,24 @@ class Plot(Element):
 
         # Convert to PNG using Inkscape
         try:
-            return svg_to_png(svg_string, output=output, dpi=dpi,
-                            width=pixel_width, height=pixel_height)
+            return svg_to_png(
+                svg_string,
+                output=output,
+                dpi=dpi,
+                width=pixel_width,
+                height=pixel_height,
+            )
         except ExportError as e:
             print(f"Error exporting to PNG: {e}", file=sys.stderr)
             raise
 
-    def pdf(self, width: AbsLengths | Number, height: AbsLengths | Number,
-            output: None  | str | BinaryIO=None, text_to_path: bool=False) -> None | bytes:
+    def pdf(
+        self,
+        width: AbsLengths | Number,
+        height: AbsLengths | Number,
+        output: None | str | BinaryIO = None,
+        text_to_path: bool = False,
+    ) -> None | bytes:
         """
         Export plot as PDF using Inkscape.
 
@@ -440,7 +507,7 @@ def plot(*args, **kwargs) -> Plot:
         else:
             raise TypeError(f"Unsupported type for plot argument: {type(arg)}")
 
-    for (k, v)in kwargs.items():
+    for k, v in kwargs.items():
         # TODO: not sure what keyword args this actually supports...
         pass
 

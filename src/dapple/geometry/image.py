@@ -4,7 +4,7 @@ from io import BytesIO
 from PIL import Image
 from ..elements import Element
 from ..scales import length_params
-from ..coordinates import CtxLenType, ResolveContext
+from ..coordinates import CtxLenType, ResolveContext, AbsLengths, AbsTransform
 from typing import override
 
 
@@ -55,19 +55,25 @@ class ImageElement(Element):
             # Grayscale image
             if data.dtype != np.uint8:
                 # Normalize to 0-255 range
-                data = ((data - data.min()) / (data.max() - data.min()) * 255).astype(np.uint8)
+                data = ((data - data.min()) / (data.max() - data.min()) * 255).astype(
+                    np.uint8
+                )
             image_array = data
         elif data.ndim == 3:
             # RGB or RGBA image
             if data.shape[2] == 3:
                 # RGB
                 if data.dtype != np.uint8:
-                    data = ((data - data.min()) / (data.max() - data.min()) * 255).astype(np.uint8)
+                    data = (
+                        (data - data.min()) / (data.max() - data.min()) * 255
+                    ).astype(np.uint8)
                 image_array = data
             elif data.shape[2] == 4:
                 # RGBA
                 if data.dtype != np.uint8:
-                    data = ((data - data.min()) / (data.max() - data.min()) * 255).astype(np.uint8)
+                    data = (
+                        (data - data.min()) / (data.max() - data.min()) * 255
+                    ).astype(np.uint8)
                 image_array = data
             else:
                 raise ValueError("3D arrays must have 3 (RGB) or 4 (RGBA) channels")
@@ -84,21 +90,47 @@ class ImageElement(Element):
 
         # Convert to PNG bytes
         buffer = BytesIO()
-        pil_image.save(buffer, format='PNG')
+        pil_image.save(buffer, format="PNG")
         png_bytes = buffer.getvalue()
 
         # Encode as base64 data URL
-        base64_data = base64.b64encode(png_bytes).decode('utf-8')
+        base64_data = base64.b64encode(png_bytes).decode("utf-8")
         return f"data:image/png;base64,{base64_data}"
 
     @override
     def resolve(self, ctx: ResolveContext) -> Element:
-        """Resolve the image element to pure SVG."""
-        attrib = {}
-        for key, value in self.attrib.items():
-            if hasattr(value, 'resolve'):
-                attrib[key] = value.resolve(ctx)
-            else:
-                attrib[key] = value
+        root = super().resolve(ctx)
 
-        return Element("image", attrib)
+        xflipped = "x" in ctx.coords and ctx.coords["x"].scale < 0
+        yflipped = "y" in ctx.coords and ctx.coords["y"].scale < 0
+
+        if xflipped or yflipped:
+            x = root.attrib["x"]
+            y = root.attrib["y"]
+            width = root.attrib["width"]
+            height = root.attrib["height"]
+
+            assert isinstance(x, AbsLengths)
+            assert isinstance(y, AbsLengths)
+            assert isinstance(width, AbsLengths)
+            assert isinstance(height, AbsLengths)
+
+            x = x.scalar_value()
+            y = y.scalar_value()
+            width = width.scalar_value()
+            height = height.scalar_value()
+
+            t = AbsTransform(
+                -1.0 if xflipped else 1.0,
+                0.0,
+                0.0,
+                -1.0 if yflipped else 1.0,
+                x + width if xflipped else x,
+                y + height if yflipped else y,
+            )
+
+            root.attrib["transform"] = t.serialize()
+            root.attrib["x"] = "0"
+            root.attrib["y"] = "0"
+
+        return root
