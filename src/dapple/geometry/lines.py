@@ -114,9 +114,6 @@ def _adaptive_sample_function(
     x_vals = np.array([p[0] for p in sorted_points])
     y_vals = np.array([p[1] for p in sorted_points])
 
-    print(x_vals.shape)
-    print(y_vals.shape)
-
     return x_vals, y_vals
 
 
@@ -214,6 +211,50 @@ def lines(
     # Single line (same as line() function)
     else:
         return line(x, y, color)
+
+
+def density(
+    x, color=ConfigKey("linecolor"), bw_method=None, weights=None, xmin=None, xmax=None
+):
+    """
+    Plot a kernel density estimate.
+
+    This computes a kernel density estimate from the given `x` data using
+    scipy's `gaussian_kde` and plots it as a line.
+
+    Args:
+        x: Input data (1D array-like).
+        color: Line color.
+        bw_method: Bandwidth estimation method for `gaussian_kde`. Can be
+                   'scott', 'silverman', a scalar, or a callable.
+        weights: Weights for each data point in `x`.
+        xmin: Minimum x value for plotting. Defaults to min of `x`.
+        xmax: Maximum x value for plotting. Defaults to max of `x`.
+    """
+    try:
+        from scipy.stats import gaussian_kde
+    except ImportError:
+        raise ImportError(
+            "scipy is required for density plotting. Install with: pip install scipy"
+        )
+
+    x_vals = np.asarray(x)
+    if x_vals.ndim != 1:
+        raise ValueError("x must be a 1D array-like object.")
+
+    if x_vals.size < 2:
+        return Element("g")
+
+    if xmin is None:
+        xmin = np.min(x_vals)
+    if xmax is None:
+        xmax = np.max(x_vals)
+
+    kde = gaussian_kde(x_vals, bw_method=bw_method, weights=weights)
+
+    # The adaptive sampler expects a function that returns a scalar, but kde
+    # returns an array.
+    return line(y=lambda v: kde(v)[0], xmin=xmin, xmax=xmax, color=color)
 
 
 def _has_multiple_values(color) -> bool:

@@ -2,10 +2,18 @@ import pytest
 import numpy as np
 import math
 
-from dapple.geometry.lines import line, lines, Path, PathData, _adaptive_sample_function
+from dapple.geometry.lines import (
+    line,
+    lines,
+    density,
+    Path,
+    PathData,
+    _adaptive_sample_function,
+)
 from dapple.coordinates import mm, AbsLengths
 from dapple.config import ConfigKey
 from dapple.colors import color
+from dapple.scales import UnscaledValues
 
 
 class TestPathData:
@@ -213,6 +221,90 @@ class TestLineGeometry:
         line_elem = line(y=test_func, xmin=0, xmax=2 * np.pi)
 
         assert line_elem.tag == "dapple:path"
+
+
+class TestDensityGeometry:
+    """Test the density geometry function."""
+
+    def test_simple_density(self):
+        """Test basic density plot creation."""
+        x_data = np.random.randn(100)
+        density_elem = density(x_data)
+
+        # The density function returns a line plot of the KDE function
+        assert density_elem.tag == "dapple:path"
+        assert "y" in density_elem.attrib
+        assert callable(density_elem.attrib["y"])
+
+    def test_density_empty_input(self):
+        """Test density with empty input data."""
+        density_elem = density([])
+        assert density_elem.tag == "g"
+        assert not hasattr(density_elem, "children") or len(density_elem.children) == 0
+
+    def test_density_custom_params(self, mocker):
+        """Test density plot with custom bw_method and weights."""
+        mock_kde = mocker.patch("scipy.stats.gaussian_kde")
+        x_data = np.array([1, 2, 3, 4, 5])
+        weights_data = np.array([1, 1, 2, 1, 1])
+
+        density(x_data, bw_method=0.5, weights=weights_data)
+
+        mock_kde.assert_called_once()
+        # Using np.testing.assert_array_equal for numpy array comparison
+        np.testing.assert_array_equal(mock_kde.call_args.args[0], x_data)
+        assert mock_kde.call_args.kwargs["bw_method"] == 0.5
+        np.testing.assert_array_equal(
+            mock_kde.call_args.kwargs["weights"], weights_data
+        )
+
+    def test_density_insufficient_data(self):
+        """Test density with just one data point."""
+        # It should still produce a path. The underlying line sampling
+        # will handle very simple functions.
+        density_elem = density([1])
+        assert line_elem.tag == "dapple:path"
+
+
+class TestDensityGeometry:
+    """Test the density geometry function."""
+
+    def test_simple_density(self):
+        """Test basic density plot creation."""
+        x_data = np.random.randn(100)
+        density_elem = density(x_data)
+
+        # The density function returns a line plot of the KDE function
+        assert density_elem.tag == "dapple:path"
+        assert "y" in density_elem.attrib
+        assert isinstance(density_elem.attrib["y"], UnscaledValues)
+
+    def test_density_with_bw_method(self):
+        """Test that bw_method is passed to gaussian_kde."""
+        # This is an indirect test, but it ensures that the parameter
+        # is accepted without crashing.
+        x_data = np.random.randn(100)
+        density_elem = density(x_data, bw_method="silverman")
+        assert density_elem.tag == "dapple:path"
+
+    def test_density_empty_input(self):
+        """Test that empty input returns an empty <g> element."""
+        density_elem = density([])
+        assert density_elem.tag == "g"
+        assert not density_elem.children
+
+    def test_density_with_weights(self):
+        """Test density with weights."""
+        x_data = np.random.randn(100)
+        weights = np.random.rand(100)
+        density_elem = density(x_data, weights=weights)
+        assert density_elem.tag == "dapple:path"
+
+    def test_density_insufficient_data(self):
+        """Test input with one data point returns an empty <g> element."""
+        density_elem = density([1])
+        assert density_elem.tag == "g"
+        assert not density_elem.children
 
 
 class TestConfigIntegration:
