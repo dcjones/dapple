@@ -5,4 +5,5 @@ from .ticks import xticks, yticks
 from .labels import xlabel, ylabel, title, xticklabels, yticklabels
 from .key import key
 from .image import image
+from .rasterized_polygons import rasterized_polygons
 from .lines import line, lines, density

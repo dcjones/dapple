@@ -3,6 +3,7 @@ from typing import TextIO, BinaryIO, override
 from io import StringIO
 import numpy as np
 import sys
+from pathlib import Path
 
 from .elements import Element, viewport
 from .geometry import xgrids, ygrids, xticks, yticks, xticklabels, yticklabels, key
@@ -341,7 +342,7 @@ class Plot(Element):
         self,
         width: AbsLengths | Number,
         height: AbsLengths | Number,
-        output: None | str | TextIO = None,
+        output: None | str | Path | TextIO = None,
         clip: bool = False,
     ):
         """
@@ -391,9 +392,12 @@ class Plot(Element):
                 print(f"Warning: Failed to copy SVG to clipboard: {e}", file=sys.stderr)
 
         if output is not None:
-            if isinstance(output, str):
-                output_file = open(output, "w")
-                svg_root.serialize(output_file)
+            if isinstance(output, Path):
+                with output.open("w") as output_file:
+                    svg_root.serialize(output_file)
+            elif isinstance(output, str):
+                with open(output, "w") as output_file:
+                    svg_root.serialize(output_file)
             else:
                 svg_root.serialize(output)
 
