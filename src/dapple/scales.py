@@ -60,7 +60,7 @@ class UnscaledValues(UnscaledExpr):
     typ: CtxLenType = CtxLenType.Vec
 
     def __init__(self, unit: str, values: Any, typ: CtxLenType = CtxLenType.Vec):
-        if not isinstance(values, Iterable):
+        if not isinstance(values, Iterable) or isinstance(values, str):
             values = [values]
         self.unit = unit
         self.values = values

@@ -295,6 +295,198 @@ def render_triangles_to_texture(
     return data
 
 
+def render_lines_to_texture(
+    segments: np.ndarray,
+    colors: Optional[np.ndarray] = None,
+    line_width: float = 1.0,
+    width: int = 1024,
+    height: int = 1024,
+    x_range: Tuple[float, float] = (0.0, 1.0),
+    y_range: Tuple[float, float] = (0.0, 1.0),
+    background_color: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
+) -> np.ndarray:
+    """
+    Render line segments (outlines) to a texture using triangles to achieve
+    consistent pixel widths.
+
+    Args:
+        segments: Array of shape (S, 2, 2) with endpoints [[x0,y0],[x1,y1]] in data units.
+        colors: Optional per-segment colors as (S,4) or (S,3). Defaults to opaque white.
+        line_width: Line width in pixels.
+        width: Texture width in pixels.
+        height: Texture height in pixels.
+        x_range: (min, max) x range of data coordinates.
+        y_range: (min, max) y range of data coordinates.
+        background_color: RGBA background color.
+
+    Returns:
+        RGBA numpy array with shape (height, width, 4).
+    """
+    ctx = ModernGLContext().get_context()
+
+    segs = np.asarray(segments, dtype=np.float32)
+    if segs.ndim != 3 or segs.shape[1] != 2 or segs.shape[2] != 2:
+        raise ValueError("segments must have shape (S, 2, 2)")
+
+    S = segs.shape[0]
+    if S == 0:
+        # Return empty transparent image
+        framebuffer, texture = create_framebuffer(width, height)
+        framebuffer.use()
+        framebuffer.clear(*background_color)
+        data = np.frombuffer(texture.read(), dtype=np.uint8).reshape((height, width, 4))
+        data = np.flip(data, axis=0)
+        framebuffer.release()
+        texture.release()
+        return data
+
+    # Map data coords -> pixel coords
+    x0, x1 = float(x_range[0]), float(x_range[1])
+    y0, y1 = float(y_range[0]), float(y_range[1])
+
+    # Avoid division by zero
+    xr = x1 - x0 if (x1 - x0) != 0 else 1.0
+    yr = y1 - y0 if (y1 - y0) != 0 else 1.0
+
+    p0 = segs[:, 0, :].astype(np.float32)
+    p1 = segs[:, 1, :].astype(np.float32)
+
+    # Pixel coordinates
+    p0_pix = np.empty_like(p0, dtype=np.float32)
+    p1_pix = np.empty_like(p1, dtype=np.float32)
+    p0_pix[:, 0] = (p0[:, 0] - x0) / xr * float(width)
+    p0_pix[:, 1] = (p0[:, 1] - y0) / yr * float(height)
+    p1_pix[:, 0] = (p1[:, 0] - x0) / xr * float(width)
+    p1_pix[:, 1] = (p1[:, 1] - y0) / yr * float(height)
+
+    # Build quad per segment in pixel space with half-width
+    hw = float(line_width) * 0.5
+    quads = []
+    valid_idx = []
+
+    for i in range(S):
+        a = p0_pix[i]
+        b = p1_pix[i]
+        d = b - a
+        norm = np.linalg.norm(d)
+        if norm <= 1e-6:
+            continue  # skip degenerate segments
+
+        # Perpendicular of (dx,dy) in pixel space
+        n = np.array([-d[1], d[0]], dtype=np.float32)
+        n_norm = np.linalg.norm(n)
+        if n_norm <= 1e-12:
+            continue
+        n = (n / n_norm) * hw
+
+        # Quad vertices in pixel coords: a+n, a-n, b-n, b+n (clockwise)
+        v0 = a + n
+        v1 = a - n
+        v2 = b - n
+        v3 = b + n
+
+        # Convert to NDC
+        def to_ndc(pix: np.ndarray) -> np.ndarray:
+            return np.array(
+                [
+                    2.0 * (pix[0] / float(width)) - 1.0,
+                    2.0 * (pix[1] / float(height)) - 1.0,
+                ],
+                dtype=np.float32,
+            )
+
+        v0n = to_ndc(v0)
+        v1n = to_ndc(v1)
+        v2n = to_ndc(v2)
+        v3n = to_ndc(v3)
+
+        # Two triangles: (v0,v1,v2) and (v0,v2,v3)
+        quads.append(np.stack([v0n, v1n, v2n, v0n, v2n, v3n], axis=0))
+        valid_idx.append(i)
+
+    if len(quads) == 0:
+        framebuffer, texture = create_framebuffer(width, height)
+        framebuffer.use()
+        framebuffer.clear(*background_color)
+        data = np.frombuffer(texture.read(), dtype=np.uint8).reshape((height, width, 4))
+        data = np.flip(data, axis=0)
+        framebuffer.release()
+        texture.release()
+        return data
+
+    verts_ndc = np.concatenate(quads, axis=0).astype(np.float32)  # (N*6, 2)
+
+    # Colors
+    if colors is None:
+        cols = np.ones((len(valid_idx), 4), dtype=np.float32)
+    else:
+        cols = np.asarray(colors, dtype=np.float32)
+        if cols.ndim == 1:
+            cols = np.tile(cols[None, ...], (S, 1))
+        if cols.shape[-1] == 3:
+            alpha = np.ones((cols.shape[0], 1), dtype=np.float32)
+            cols = np.concatenate([cols, alpha], axis=1)
+        if cols.shape[0] != S:
+            raise ValueError("colors must provide one color per segment")
+        cols = cols[valid_idx, :].astype(np.float32)
+
+    # Expand per-quad color to per-vertex (6 vertices per segment)
+    cols_per_vertex = (
+        np.repeat(cols[:, None, :], 6, axis=1).reshape((-1, 4)).astype(np.float32)
+    )
+
+    # Interleave position and color
+    vertex_data = np.column_stack([verts_ndc, cols_per_vertex]).astype(np.float32)
+
+    # Create GL resources
+    framebuffer, texture = create_framebuffer(width, height)
+    vbo = ctx.buffer(vertex_data.tobytes())
+
+    vertex_shader = """
+    #version 330
+    in vec2 in_position;
+    in vec4 in_color;
+    out vec4 v_color;
+    void main() {
+        gl_Position = vec4(in_position, 0.0, 1.0);
+        v_color = in_color;
+    }
+    """
+
+    fragment_shader = """
+    #version 330
+    in vec4 v_color;
+    out vec4 fragColor;
+    void main() {
+        fragColor = v_color;
+    }
+    """
+
+    program = ctx.program(vertex_shader=vertex_shader, fragment_shader=fragment_shader)
+    vao = ctx.vertex_array(program, [(vbo, "2f 4f", "in_position", "in_color")])
+
+    # Render
+    framebuffer.use()
+    framebuffer.clear(*background_color)
+    ctx.enable(moderngl.BLEND)
+    ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA)
+
+    vao.render(mode=moderngl.TRIANGLES)
+
+    # Readback
+    data = np.frombuffer(texture.read(), dtype=np.uint8).reshape((height, width, 4))
+    data = np.flip(data, axis=0)
+
+    # Cleanup
+    vao.release()
+    vbo.release()
+    program.release()
+    framebuffer.release()
+    texture.release()
+
+    return data
+
+
 def calculate_dpi_size(
     width_mm: float, height_mm: float, dpi: float
 ) -> Tuple[int, int]:
