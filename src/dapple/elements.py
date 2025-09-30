@@ -1,12 +1,38 @@
-
-from .coordinates import CoordTransform, Resolvable, CoordSet, AbsCoordSet, AbsLengths, Lengths, Transform, ResolveContext, Serializable, resolve, mm, vw, vh, translate
+from .coordinates import (
+    CoordTransform,
+    CoordBounds,
+    Resolvable,
+    CoordSet,
+    AbsCoordSet,
+    AbsLengths,
+    Lengths,
+    Transform,
+    ResolveContext,
+    Serializable,
+    resolve,
+    mm,
+    vw,
+    vh,
+    translate,
+)
 from .occupancy import Occupancy
 from .colors import Colors
 from .scales import ScaleSet
-from typing import Any, Collection, TextIO, Callable, Optional, Iterable, override, assert_type
+from typing import (
+    Any,
+    Collection,
+    TextIO,
+    Callable,
+    Optional,
+    Iterable,
+    TypeVar,
+    override,
+)
 from itertools import repeat
 from functools import singledispatch
 from copy import copy
+
+AttrType = TypeVar("AttrType")
 
 
 class Element(Resolvable):
@@ -18,20 +44,26 @@ class Element(Resolvable):
     tag: str
     attrib: dict[str, object]
     text: str | None
-    children: list['Element']
+    children: list["Element"]
 
-    def __init__(self, tag: str="g", attrib: dict[str, object] | None=None, *args: 'Element', **kwargs: object):
+    def __init__(
+        self,
+        tag: str = "g",
+        attrib: dict[str, object] | None = None,
+        *args: "Element",
+        **kwargs: object,
+    ):
         self.tag = tag
         self.text = None
         self.attrib = attrib if attrib is not None else dict()
-        for (key, value) in kwargs.items():
+        for key, value in kwargs.items():
             self.attrib[key] = value
 
         self.children = []
         for arg in args:
             self.children.append(arg)
 
-    def __getitem__(self, index: int) -> 'Element':
+    def __getitem__(self, index: int) -> "Element":
         return self.children[index]
 
     def __len__(self) -> int:
@@ -48,10 +80,20 @@ class Element(Resolvable):
     def set(self, key: str, value: object):
         self.attrib[key] = value
 
-    def get(self, key: str, default: object | None=None) -> object | None:
+    def get(self, key: str, default: object | None = None) -> object | None:
         return self.attrib.get(key, default)
 
-    def append(self, child: 'Element'):
+    def get_as(self, key: str, expected_type: type[AttrType]) -> AttrType:
+        value = self.attrib.get(key)
+        if value is None:
+            raise KeyError(f"Attribute '{key}' not found")
+        if not isinstance(value, expected_type):
+            raise TypeError(
+                f"Attribute '{key}' is not of type {expected_type.__name__}"
+            )
+        return value
+
+    def append(self, child: "Element"):
         self.children.append(child)
 
     def isxml(self) -> bool:
@@ -71,11 +113,11 @@ class Element(Resolvable):
     def __repr__(self):
         return f"<{self.tag} {self.attrib}>"
 
-    def similar(self, attrib: dict[str, object]) -> 'Element':
+    def similar(self, attrib: dict[str, object]) -> "Element":
         return Element(self.tag, attrib)
 
     @override
-    def resolve(self, ctx: ResolveContext) -> 'Element':
+    def resolve(self, ctx: ResolveContext) -> "Element":
         """
         Convert the resolvable element into a regular svg element by providing
         context on absolute sizes ond occupancy.
@@ -101,14 +143,46 @@ class Element(Resolvable):
 
         return el
 
-    def serialize(self, output: TextIO, indent: int=0):
+    def update_bounds(self, bounds: CoordBounds):
+        # Special-cases handling particular SVG elements
+        match self.tag:
+            case "circle":
+                # TODO: For this to work we need to support scalar + vector length operations :(
+
+                x = self.get_as("cx", Lengths)
+                y = self.get_as("cy", Lengths)
+                r = self.get_as("r", Lengths)
+
+                bounds.update(x - r)
+                bounds.update(y - r)
+                bounds.update(x + r)
+                bounds.update(y + r)
+            case "rect":
+                x = self.get_as("x", Lengths)
+                y = self.get_as("y", Lengths)
+                w = self.get_as("width", Lengths)
+                h = self.get_as("height", Lengths)
+
+                bounds.update(x)
+                bounds.update(y)
+                bounds.update(x + w)
+                bounds.update(y + h)
+            case _:
+                for _attr, value in self.attrib.items():
+                    if isinstance(value, Lengths):
+                        bounds.update(value)
+
+        for child in self:
+            child.update_bounds(bounds)
+
+    def serialize(self, output: TextIO, indent: int = 0):
         _ = output.write(" " * indent)
         _ = output.write(f"<{self.tag} ")
         for key, value in self.attrib.items():
             if isinstance(value, Serializable):
                 value = value.serialize()
             if value is not None:
-                _ = output.write(f"{key}=\"{value}\" ")
+                _ = output.write(f'{key}="{value}" ')
 
         if len(self) == 0 and self.text is None:
             _ = output.write(f"/>\n")
@@ -117,7 +191,7 @@ class Element(Resolvable):
             if self.text is not None:
                 _ = output.write(self.text)
             for child in self:
-                child.serialize(output, indent+2)
+                child.serialize(output, indent + 2)
             _ = output.write(" " * indent)
             _ = output.write(f"</{self.tag}>\n")
 
@@ -131,7 +205,9 @@ class Element(Resolvable):
         for child in self:
             child.delete_attributes_inplace(predicate)
 
-    def traverse_attributes(self, visitor: Callable[[str, Any], None], filter_type: type | None):
+    def traverse_attributes(
+        self, visitor: Callable[[str, Any], None], filter_type: type | None
+    ):
         """
         Simple functional tree traversal for element trees.
         """
@@ -143,7 +219,7 @@ class Element(Resolvable):
         for child in self:
             child.traverse_attributes(visitor, filter_type)
 
-    def traverse_elements(self, visitor: Callable[['Element'], None]):
+    def traverse_elements(self, visitor: Callable[["Element"], None]):
         """
         Simple functional tree traversal for element trees.
         """
@@ -152,7 +228,9 @@ class Element(Resolvable):
         for child in self:
             child.traverse_elements(visitor)
 
-    def rewrite_attributes_inplace(self, visitor: Callable[[str, object], object], filter_type: type | None=None):
+    def rewrite_attributes_inplace(
+        self, visitor: Callable[[str, object], object], filter_type: type | None = None
+    ):
         """
         Rewrite an element tree by applying a function to every elements attribute (optionally, only of a particular type)
         """
@@ -166,8 +244,9 @@ class Element(Resolvable):
         for child in self:
             child.rewrite_attributes_inplace(visitor, filter_type)
 
-
-    def rewrite_attributes(self, visitor: Callable[[str, object], object], filter_type: type | None=None):
+    def rewrite_attributes(
+        self, visitor: Callable[[str, object], object], filter_type: type | None = None
+    ):
         """
         Rewrite an element tree by applying a function to every elements attribute (optionally, only of a particular type)
         """
@@ -224,23 +303,25 @@ class VectorizedElement(Element):
         super().__init__(tag, attrib, **extra)
 
     @override
-    def similar(self, attrib: dict[str, object]) -> 'VectorizedElement':
+    def similar(self, attrib: dict[str, object]) -> "VectorizedElement":
         return VectorizedElement(self.tag, attrib)
 
     @override
-    def serialize(self, output: TextIO, indent: int=0):
+    def serialize(self, output: TextIO, indent: int = 0):
         nels = 1
-        for (_key, value) in self.attrib.items():
+        for _key, value in self.attrib.items():
             if isinstance(value, (AbsLengths, Colors)):
                 if len(value) > 1:
                     if nels != len(value):
                         if nels > 1:
-                            raise Exception("VectorizedElement attribute has inconsistent lengths")
+                            raise Exception(
+                                "VectorizedElement attribute has inconsistent lengths"
+                            )
                         nels = len(value)
 
         keys = []
         value_iters = []
-        for (key, value) in self.attrib.items():
+        for key, value in self.attrib.items():
             keys.append(key)
             if isinstance(value, Serializable):
                 svalue = value.serialize()
@@ -256,19 +337,26 @@ class VectorizedElement(Element):
         for values in zip(*value_iters):
             _ = output.write(" " * indent)
             _ = output.write(f"<{self.tag} ")
-            for (k, v) in zip(keys, values):
-                _ = output.write(f"{k}=\"{v}\" ")
+            for k, v in zip(keys, values):
+                _ = output.write(f'{k}="{v}" ')
 
             if len(self) == 0:
                 _ = output.write(f"/>\n")
             else:
                 _ = output.write(f">\n")
                 for child in self:
-                    child.serialize(output, indent+2)
+                    child.serialize(output, indent + 2)
                 _ = output.write(" " * indent)
                 _ = output.write(f"</{self.tag}>\n")
 
-def viewport(children: Iterable[Element], x: Lengths=mm(0), y: Lengths=mm(0), width: Optional[Lengths]=None, height: Optional[Lengths]=None) -> Element:
+
+def viewport(
+    children: Iterable[Element],
+    x: Lengths = mm(0),
+    y: Lengths = mm(0),
+    width: Optional[Lengths] = None,
+    height: Optional[Lengths] = None,
+) -> Element:
     if width is None:
         width = vw(1) - x
     if height is None:
@@ -281,7 +369,7 @@ def viewport(children: Iterable[Element], x: Lengths=mm(0), y: Lengths=mm(0), wi
                 "vw": CoordTransform(width, mm(0)),
                 "vh": CoordTransform(height, mm(0)),
             },
-            "transform": translate(x, y)
+            "transform": translate(x, y),
         },
-        *children
+        *children,
     )

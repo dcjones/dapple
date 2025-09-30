@@ -135,11 +135,7 @@ class Plot(Element):
         # Fit coordinates
         bounds = CoordBounds()
         bounds.update_from_ticks(scaleset)
-
-        def update_bounds(_attr, expr: Lengths):
-            bounds.update(expr)
-
-        root.traverse_attributes(update_bounds, Lengths)
+        root.update_bounds(bounds)
         coordset = bounds.solve(set(["y"]))
 
         for child in root:
