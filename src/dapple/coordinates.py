@@ -425,11 +425,11 @@ class CtxLengths(Lengths):
     def to_sympy(self) -> sympy.Expr:
         self.assert_scalar()
         if self.typ == CtxLenType.Vec:
-            sym = sympy.Symbol(self.unit + "_v", positive=True)
+            sym = sympy.Function(self.unit + "_v")
         else:
-            sym = sympy.Symbol(self.unit, positive=True)
+            sym = sympy.Function(self.unit)
 
-        return self.values[0] * sym
+        return sym(self.values[0])
 
     @override
     def units(self) -> set[str]:
@@ -918,6 +918,9 @@ class CoordBounds:
             lower_parts = lower.min_parts()
             upper_parts = upper.max_parts()
 
+            # TODO: We might try converting the whole thing to sympy,
+            # simplifying, then splitting into parts.
+
             lower_part_exprs = [
                 self._rewrite_sympy_expression(
                     scale_sym, translate_sym, part.to_sympy(), unit
@@ -931,6 +934,14 @@ class CoordBounds:
                 )
                 for part in upper_parts
             ]
+
+            # We try to find the pair of bounds that leads to the smalest
+            # scale and choose that as the active bounds. We can't always
+            # unambiguously evaluate the minimum, so we assume a specific
+            # vw/vh size here to avoid inequalities that can't be evaluated.
+            # This will lead to incorrect results in some cases for very small
+            # plots.
+            ASSUMED_REF_UNIT_SIZE = 100
 
             scale_expr: None | sympy.Basic = None
             translate_expr: None | sympy.Basic = None
@@ -946,20 +957,12 @@ class CoordBounds:
                         ),
                     )
 
-                    if scale_expr is None:
+                    if scale_expr is None or sympy.ask(
+                        solution[scale_sym] < scale_expr,
+                        sympy.Q.eq(ref_unit, ASSUMED_REF_UNIT_SIZE),
+                    ):
                         scale_expr = solution[scale_sym]
-                    else:
-                        scale_expr = cast(
-                            sympy.Basic, sympy.Min(scale_expr, solution[scale_sym])
-                        )
-
-                    if translate_expr is None:
                         translate_expr = solution[translate_sym]
-                    else:
-                        translate_expr = cast(
-                            sympy.Basic,
-                            sympy.Min(translate_expr, solution[translate_sym]),
-                        )
 
             assert isinstance(scale_expr, sympy.Basic)
             assert isinstance(translate_expr, sympy.Basic)
@@ -1003,16 +1006,18 @@ class CoordBounds:
         solving the coordinate transform.
         """
 
-        # TODO: We should rewrite vector versus positions differently (that should decide wither `translate is included)
-
-        unit_sym = sympy.Symbol(unit, positive=True)
+        unit_sym = sympy.Function(unit)
         c = sympy.Wild(
-            "c", properties=[lambda k: k.is_number], exclude=[sympy.Number(1)]
+            "c",
+            properties=[lambda k: k.is_number],
         )
 
         expr_rewrite = expr.replace(
-            c * unit_sym, lambda c: c * scale_sym + translate_sym
-        ).replace(unit_sym, scale_sym + translate_sym)
+            unit_sym(c), lambda c: c * scale_sym + translate_sym
+        )
+
+        unit_vec_sym = sympy.Function(unit + "_v")
+        expr_rewrite = expr_rewrite.replace(unit_vec_sym(c), lambda c: c * scale_sym)
 
         return expr_rewrite
 
