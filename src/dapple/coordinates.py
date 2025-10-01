@@ -957,9 +957,11 @@ class CoordBounds:
                         ),
                     )
 
+                    # TODO: handle unvolvable cases
+
                     if scale_expr is None or sympy.ask(
-                        solution[scale_sym] < scale_expr,
-                        sympy.Q.eq(ref_unit, ASSUMED_REF_UNIT_SIZE),
+                        abs(solution[scale_sym]) < abs(scale_expr),
+                        sympy.Q.ge(ref_unit, ASSUMED_REF_UNIT_SIZE),
                     ):
                         scale_expr = solution[scale_sym]
                         translate_expr = solution[translate_sym]
