@@ -98,16 +98,16 @@ class Lengths(Resolvable, ABC):
         return [self]
 
     @abstractmethod
-    def _unmin(self) -> Lengths:
+    def unmin(self) -> Lengths:
         pass
 
     @abstractmethod
-    def _unmax(self) -> Lengths:
+    def unmax(self) -> Lengths:
         pass
 
     def min(self, other: Optional[Lengths] = None) -> Lengths:
         if other is None:
-            return self._unmin()
+            return self.unmin()
 
         # simplification rules:
         # min(au, bu) = min(a, b)u (u is absolute)
@@ -144,7 +144,7 @@ class Lengths(Resolvable, ABC):
 
     def max(self, other: Optional[Lengths] = None) -> Lengths:
         if other is None:
-            return self._unmax()
+            return self.unmax()
 
         # simplification rules:
         # max(au, bu) = max(a, b)u (u is absolute)
@@ -224,14 +224,14 @@ class AbsLengths(Lengths, Serializable):
             return AbsLengths(self.values[index])
 
     @override
-    def _unmin(self) -> AbsLengths:
+    def unmin(self) -> AbsLengths:
         """
         Unary minimum.
         """
         return AbsLengths(self.values.min(keepdims=True))
 
     @override
-    def _unmax(self) -> AbsLengths:
+    def unmax(self) -> AbsLengths:
         """
         Unary maximum.
         """
@@ -365,14 +365,14 @@ class CtxLengths(Lengths):
             return CtxLengths(self.values[index], self.unit, self.typ)
 
     @override
-    def _unmin(self) -> CtxLengths:
+    def unmin(self) -> CtxLengths:
         """
         Unary minimum.
         """
         return CtxLengths(self.values.min(keepdims=True), self.unit, self.typ)
 
     @override
-    def _unmax(self) -> CtxLengths:
+    def unmax(self) -> CtxLengths:
         """
         Unary maximum.
         """
@@ -515,12 +515,18 @@ class LengthsAddOp(Lengths):
         return len(self.a)
 
     @override
-    def _unmin(self) -> LengthsAddOp:
-        return LengthsAddOp(self.a._unmin(), self.b._unmin())
+    def unmin(self) -> Lengths:
+        if self.a.isscalar() or self.b.isscalar():
+            return LengthsAddOp(self.a.unmin(), self.b.unmin())
+        else:
+            return LengthsUnaryMinOp(self)
 
     @override
-    def _unmax(self) -> LengthsAddOp:
-        return LengthsAddOp(self.a._unmax(), self.b._unmax())
+    def unmax(self) -> Lengths:
+        if self.a.isscalar() or self.b.isscalar():
+            return LengthsAddOp(self.a.unmax(), self.b.unmax())
+        else:
+            return LengthsUnaryMaxOp(self.a)
 
     @override
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
@@ -562,18 +568,18 @@ class LengthsMulOp(Lengths):
         return AbsLengths(self.a * b.values)
 
     @override
-    def _unmin(self) -> LengthsMulOp:
+    def unmin(self) -> LengthsMulOp:
         if self.a < 0.0:
-            return LengthsMulOp(self.a, self.b._unmax())
+            return LengthsMulOp(self.a, self.b.unmax())
         else:
-            return LengthsMulOp(self.a, self.b._unmin())
+            return LengthsMulOp(self.a, self.b.unmin())
 
     @override
-    def _unmax(self) -> LengthsMulOp:
+    def unmax(self) -> LengthsMulOp:
         if self.a < 0.0:
-            return LengthsMulOp(self.a, self.b._unmin())
+            return LengthsMulOp(self.a, self.b.unmin())
         else:
-            return LengthsMulOp(self.a, self.b._unmax())
+            return LengthsMulOp(self.a, self.b.unmax())
 
     @override
     def __repr__(self) -> str:
@@ -605,12 +611,12 @@ class LengthsNegOp(Lengths):
         return LengthsNegOp(self.a[index])
 
     @override
-    def _unmin(self) -> LengthsNegOp:
-        return LengthsNegOp(self.a._unmax())
+    def unmin(self) -> LengthsNegOp:
+        return LengthsNegOp(self.a.unmax())
 
     @override
-    def _unmax(self) -> LengthsNegOp:
-        return LengthsNegOp(self.a._unmin())
+    def unmax(self) -> LengthsNegOp:
+        return LengthsNegOp(self.a.unmin())
 
     @override
     def resolve(self, ctx: ResolveContext) -> AbsLengths:
@@ -654,11 +660,11 @@ class LengthsMinOp(Lengths):
         return LengthsMinOp(self.a[index], self.b[index])
 
     @override
-    def _unmin(self) -> LengthsMinOp:
+    def unmin(self) -> LengthsMinOp:
         return self
 
     @override
-    def _unmax(self) -> LengthsMinOp:
+    def unmax(self) -> LengthsMinOp:
         return self
 
     @override
@@ -710,11 +716,11 @@ class LengthsMaxOp(Lengths):
         return LengthsMaxOp(self.a[index], self.b[index])
 
     @override
-    def _unmin(self) -> LengthsMaxOp:
+    def unmin(self) -> LengthsMaxOp:
         return self
 
     @override
-    def _unmax(self) -> LengthsMaxOp:
+    def unmax(self) -> LengthsMaxOp:
         return self
 
     @override
@@ -743,6 +749,76 @@ class LengthsMaxOp(Lengths):
 
     def units(self) -> set[str]:
         return self.a.units().union(self.b.units())
+
+
+@dataclass
+class LengthsUnaryMinOp(Lengths):
+    a: Lengths
+
+    @override
+    def __len__(self) -> int:
+        return 1
+
+    @override
+    def __getitem__(self, idx: int) -> Lengths:
+        return self.a[idx]
+
+    @override
+    def unmin(self) -> Lengths:
+        return self
+
+    @override
+    def unmax(self) -> Lengths:
+        return self
+
+    @override
+    def units(self) -> set[str]:
+        return self.a.units()
+
+    @override
+    def resolve(self, ctx: ResolveContext) -> AbsLengths:
+        a_abs = self.a.resolve(ctx)
+        assert isinstance(a_abs, AbsLengths)
+        return a_abs.unmin()
+
+    @override
+    def to_sympy(self) -> sympy.Expr:
+        return sympy.Min(*[self.a[i].to_sympy() for i in range(len(self))])
+
+
+@dataclass
+class LengthsUnaryMaxOp(Lengths):
+    a: Lengths
+
+    @override
+    def __len__(self) -> int:
+        return 1
+
+    @override
+    def __getitem__(self, idx: int) -> Lengths:
+        return self.a[idx]
+
+    @override
+    def unmin(self) -> Lengths:
+        return self
+
+    @override
+    def unmax(self) -> Lengths:
+        return self
+
+    @override
+    def units(self) -> set[str]:
+        return self.a.units()
+
+    @override
+    def resolve(self, ctx: ResolveContext) -> AbsLengths:
+        a_abs = self.a.resolve(ctx)
+        assert isinstance(a_abs, AbsLengths)
+        return a_abs.unmax()
+
+    @override
+    def to_sympy(self) -> sympy.Expr:
+        return sympy.Max(*[self.a[i].to_sympy() for i in range(len(self))])
 
 
 @dataclass
@@ -957,7 +1033,8 @@ class CoordBounds:
                         ),
                     )
 
-                    # TODO: handle unvolvable cases
+                    if scale_sym not in solution or translate_sym not in solution:
+                        continue
 
                     if scale_expr is None or sympy.ask(
                         abs(solution[scale_sym]) < abs(scale_expr),
