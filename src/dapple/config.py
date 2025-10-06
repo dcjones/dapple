@@ -50,6 +50,7 @@ class Config:
     grid_stroke: Colors = field(default_factory=lambda: color("#dddddd"))
     linecolor: Colors = field(default_factory=lambda: color("#333333"))
     linestroke: AbsLengths = field(default_factory=lambda: mm(0.3))
+    barcolor: Colors = field(default_factory=lambda: color("#333333"))
     grid_stroke_dasharray: str = "1"
     tick_stroke_width: AbsLengths = field(default_factory=lambda: mm(0.4))
     tick_stroke: Colors = field(default_factory=lambda: color("#333333"))
