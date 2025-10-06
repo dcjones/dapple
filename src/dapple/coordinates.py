@@ -997,8 +997,8 @@ class CoordBounds:
                 self.bounds[unit] = (ticks_min, ticks_max)
 
     def solve(self, flipped: set[str]) -> CoordSet:
-        vw_sym, vh_sym = cast(
-            tuple[sympy.Symbol, sympy.Symbol], sympy.symbols("vw vh", positive=True)
+        vw_sym, vh_sym, mm_sym = cast(
+            tuple[sympy.Symbol, sympy.Symbol], sympy.symbols("vw vh mm", positive=True)
         )
         translate_sym, scale_sym = cast(
             tuple[sympy.Symbol, sympy.Symbol], sympy.symbols("translate scale")
@@ -1066,10 +1066,17 @@ class CoordBounds:
                     if scale_sym not in solution or translate_sym not in solution:
                         continue
 
-                    if scale_expr is None or sympy.ask(
-                        abs(solution[scale_sym]) < abs(scale_expr),
-                        sympy.Q.ge(ref_unit, ASSUMED_REF_UNIT_SIZE),
-                    ):
+                    # TODO: This is brutally slow for some reason. Maybe we do substitution instead?
+                    # if scale_expr is None or sympy.ask(
+                    #     abs(solution[scale_sym]) < abs(scale_expr),
+                    #     sympy.Q.ge(ref_unit, ASSUMED_REF_UNIT_SIZE),
+                    # ):
+                    # This alternative is fast and basically works the same.
+                    if scale_expr is None or abs(
+                        solution[scale_sym].subs(
+                            ref_unit, ASSUMED_REF_UNIT_SIZE * mm_sym
+                        )
+                    ) < abs(scale_expr.subs(ref_unit, ASSUMED_REF_UNIT_SIZE * mm_sym)):
                         scale_expr = solution[scale_sym]
                         translate_expr = solution[translate_sym]
 
