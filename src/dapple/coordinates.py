@@ -200,7 +200,15 @@ class AbsLengths(Lengths, Serializable):
     values: NDArray[np.float64]
 
     def __init__(self, values: np.ndarray):
-        self.values = values.astype(np.float64)
+        assert len(values) > 0
+        alleq = True
+        for value in values:
+            alleq &= value == values[0]
+
+        if alleq:
+            self.values = np.array([values[0]], dtype=np.float64)
+        else:
+            self.values = values.astype(np.float64)
 
     @override
     def __len__(self) -> int:
@@ -346,6 +354,19 @@ class CtxLengths(Lengths):
     values: NDArray[np.float64]
     unit: str
     typ: CtxLenType
+
+    def __init__(self, values: NDArray[np.float64], unit: str, typ: CtxLenType):
+        assert len(values) > 0
+        alleq = True
+        for value in values:
+            alleq &= value == values[0]
+
+        if alleq:
+            self.values = np.array([values[0]], dtype=np.float64)
+        else:
+            self.values = values.astype(np.float64)
+        self.unit = unit
+        self.typ = typ
 
     @override
     def __len__(self) -> int:
