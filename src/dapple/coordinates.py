@@ -200,7 +200,10 @@ class AbsLengths(Lengths, Serializable):
     values: NDArray[np.float64]
 
     def __init__(self, values: np.ndarray):
-        assert len(values) > 0
+        if len(values) == 0:
+            self.values = np.array([], dtype=np.float64)
+            return
+
         alleq = True
         for value in values:
             alleq &= value == values[0]
@@ -356,6 +359,13 @@ class CtxLengths(Lengths):
     typ: CtxLenType
 
     def __init__(self, values: NDArray[np.float64], unit: str, typ: CtxLenType):
+        self.unit = unit
+        self.typ = typ
+
+        if len(values) == 0:
+            self.values = np.array([], dtype=np.float64)
+            return
+
         assert len(values) > 0
         alleq = True
         for value in values:
@@ -365,8 +375,6 @@ class CtxLengths(Lengths):
             self.values = np.array([values[0]], dtype=np.float64)
         else:
             self.values = values.astype(np.float64)
-        self.unit = unit
-        self.typ = typ
 
     @override
     def __len__(self) -> int:
@@ -1038,7 +1046,7 @@ class CoordBounds:
             # vw/vh size here to avoid inequalities that can't be evaluated.
             # This will lead to incorrect results in some cases for very small
             # plots.
-            ASSUMED_REF_UNIT_SIZE = 100
+            ASSUMED_REF_UNIT_SIZE = 75
 
             scale_expr: None | sympy.Basic = None
             translate_expr: None | sympy.Basic = None
@@ -1051,6 +1059,7 @@ class CoordBounds:
                             if unit in flipped
                             else [lower_part_expr, upper_part_expr - ref_unit],
                             [scale_sym, translate_sym],
+                            rational=False,
                         ),
                     )
 
@@ -1137,7 +1146,14 @@ def sympy_to_length(expr: sympy.Basic) -> Lengths:
                 return ctxlengths(1.0, expr.name, CtxLenType.Vec)
             else:
                 return ctxlengths(1.0, expr.name.rstrip("_v"), CtxLenType.Pos)
-    if isinstance(expr, sympy.Add):
+    elif issubclass(type(expr), sympy.Function):
+        assert len(expr.args) == 1 and isinstance(expr.args[0], sympy.Number)
+        arg = float(expr.args[0])
+        if expr.name.endswith("_v"):
+            return ctxlengths(arg, expr.name, CtxLenType.Vec)
+        else:
+            return ctxlengths(arg, expr.name.rstrip("_v"), CtxLenType.Pos)
+    elif isinstance(expr, sympy.Add):
         return sympy_to_length(expr.args[0]) + sympy_to_length(expr.args[1])
     elif isinstance(expr, sympy.Mul):
         a, b = expr.args
