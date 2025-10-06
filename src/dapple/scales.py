@@ -305,7 +305,7 @@ class ScaleDiscreteLength(ScaleDiscrete):
 
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
         assert values.unit == self.unit
-        indices = np.array(self.map[value] for value in values.values)
+        indices = np.fromiter((self.map[value] for value in values.values), dtype=int)
         return CtxLengths(self.targets[indices], values.unit, values.typ)
 
     def ticks(self) -> Tuple[NDArray[np.str_], CtxLengths]:
