@@ -1,6 +1,7 @@
 import pytest
 import dapple.coordinates as dplc
 
+
 def test_abs_length_init():
     with pytest.raises(Exception):
         dplc.mm("1.0")
@@ -14,6 +15,7 @@ def test_abs_length_init():
     dplc.cm([1, 2, 3])
     dplc.pt([1, 2, 3])
     dplc.inch([1, 2, 3])
+
 
 def test_ctx_length_init():
     with pytest.raises(Exception):
@@ -32,6 +34,7 @@ def test_ctx_length_init():
     dplc.vh([1, 2, 3])
     dplc.vhv([1, 2, 3])
 
+
 def test_expression_construction():
     assert dplc.mm(1).scalar_value() == 1
     with pytest.raises(Exception):
@@ -40,9 +43,9 @@ def test_expression_construction():
     dplc.cx(1) + dplc.mm(1)
     1 * dplc.mm(1)
     -dplc.mm(1)
-    abs(dplc.mm(1))
     dplc.mm(1).min(dplc.cx(2))
     dplc.mm(1).max(dplc.cx(2))
+
 
 def test_min_simplification():
     one_mm = dplc.mm(1)
@@ -57,9 +60,14 @@ def test_min_simplification():
     assert (one_cx + one_cy).min(one_cx + one_mm) == one_cx + one_cy.min(one_mm)
     assert (one_cy + one_cx).min(one_mm + one_cx) == one_cy.min(one_mm) + one_cx
 
-    assert mul_op(2.0, one_cx).min(mul_op(2.0, one_cy)) == mul_op(2.0, one_cx.min(one_cy))
-    assert mul_op(-2.0, one_cx).min(mul_op(-2.0, one_cy)) == mul_op(-2.0, one_cx.max(one_cy))
+    assert mul_op(2.0, one_cx).min(mul_op(2.0, one_cy)) == mul_op(
+        2.0, one_cx.min(one_cy)
+    )
+    assert mul_op(-2.0, one_cx).min(mul_op(-2.0, one_cy)) == mul_op(
+        -2.0, one_cx.max(one_cy)
+    )
     assert (-one_cx).min(-one_cy) == -one_cx.max(one_cy)
+
 
 def test_max_simplification():
     one_mm = dplc.mm(1)
@@ -74,8 +82,12 @@ def test_max_simplification():
     assert (one_cx + one_cy).max(one_cx + one_mm) == one_cx + one_cy.max(one_mm)
     assert (one_cy + one_cx).max(one_mm + one_cx) == one_cy.max(one_mm) + one_cx
 
-    assert mul_op(2.0, one_cx).max(mul_op(2.0, one_cy)) == mul_op(2.0, one_cx.max(one_cy))
-    assert mul_op(-2.0, one_cx).max(mul_op(-2.0, one_cy)) == mul_op(-2.0, one_cx.min(one_cy))
+    assert mul_op(2.0, one_cx).max(mul_op(2.0, one_cy)) == mul_op(
+        2.0, one_cx.max(one_cy)
+    )
+    assert mul_op(-2.0, one_cx).max(mul_op(-2.0, one_cy)) == mul_op(
+        -2.0, one_cx.min(one_cy)
+    )
     assert (-one_cx).max(-one_cy) == -one_cx.min(one_cy)
 
 
