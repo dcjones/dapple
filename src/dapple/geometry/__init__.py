@@ -9,3 +9,4 @@ from .rasterized_polygons import rasterized_polygons
 from .rasterized_polygon_outlines import rasterized_polygon_outlines
 from .lines import line, lines, density
 from .bars import vertical_bars, horizontal_bars
+from .histogram import histogram
