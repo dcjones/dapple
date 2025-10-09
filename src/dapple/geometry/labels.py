@@ -251,10 +251,15 @@ def title(text: str, *args, **kwargs):
     return Title(text, *args, **kwargs)
 
 
+@final
 class XTickLabels(Element):
     """
     Draw tick labels along the bottom margin of the plot for the x-axis.
     """
+
+    root: Element | None
+    tick_labels = list[str] | None
+    tick_positions = Lengths | None
 
     def __init__(
         self,
@@ -270,22 +275,33 @@ class XTickLabels(Element):
         }
         super().__init__("dapple:xticklabels", attrib)  # type: ignore
         self._tick_labels = None
+        self.root = None
+        self.tick_labels = None
+        self.tick_positions = None
 
     @override
     def resolve(self, ctx: ResolveContext) -> Element:
+        assert self.root is not None
+        return self.root.resolve(ctx)
+
+    @override
+    def apply_scales(self, scales: ScaleSet):
+        """
+        Once we are informed of the scales, we can acess the ticks and generate
+        all the geometry.
+        """
+
+        if "x" not in scales:
+            self.root = Element("g")
+
+        x_scale = scales["x"]
+        assert isinstance(x_scale, Scale)
+        tick_labels, tick_positions = x_scale.ticks()
+        assert isinstance(tick_positions, Lengths)
+
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
         fill = self.attrib["fill"]
-
-        assert isinstance(font_family, str)
-        assert isinstance(font_size, AbsLengths)
-
-        if "x" not in ctx.scales:
-            return Element("g")
-
-        x_scale = ctx.scales["x"]
-        x_labels, x_ticks = x_scale.ticks()
-        assert isinstance(x_ticks, Lengths)
 
         g = Element(
             "g",
@@ -297,29 +313,53 @@ class XTickLabels(Element):
             },
         )
 
-        # Add text elements for each tick label
-        for i, (label, x_pos) in enumerate(zip(x_labels, x_ticks)):
-            text_element = Element(
+        g.append(
+            VectorizedElement(
                 "text",
                 {
-                    "x": x_pos,
-                    # "y": max_text_height,  # Position from top of the space allocated
+                    "x": tick_positions,
                     "y": vh(1),
                 },
+                *map(RawText, tick_labels),
             )
-            text_element.text = str(label)
-            g.append(text_element)
-
-        return g.resolve(ctx)
+        )
+        self.root = g
+        self.tick_labels = tick_labels
+        self.tick_positions = tick_positions
 
     @override
-    def apply_scales(self, scales):
-        """Store tick labels for precise bounds calculation."""
-        from ..scales import ScaleSet
+    def update_bounds(self, bounds: CoordBounds):
+        if self.tick_positions is None or self.tick_labels is None:
+            return
 
-        if "x" in scales:
-            x_scale = scales["x"]
-            self._tick_labels, _ = x_scale.ticks()
+        assert isinstance(self.tick_labels, np.ndarray)
+        assert isinstance(self.tick_positions, Lengths)
+
+        if len(self.tick_labels) == 0 or len(self.tick_positions) == 0:
+            return
+
+        font_family = self.attrib["font_family"]
+        font_size = self.attrib["font_size"]
+
+        assert isinstance(font_family, str)
+        assert isinstance(font_size, AbsLengths)
+
+        font = Font(font_family, font_size)
+
+        l0 = self.tick_labels[0]
+        assert isinstance(l0, str)
+        l0_width, _l0_height = font.get_extents(str(l0))
+        x0 = self.tick_positions[0]
+
+        ln = self.tick_labels[-1]
+        assert isinstance(ln, str)
+        ln_width, _ln_height = font.get_extents(str(ln))
+        xn = self.tick_positions[-1]
+
+        bounds.update(x0 - 0.5 * l0_width)
+        bounds.update(x0 + 0.5 * l0_width)
+        bounds.update(xn - 0.5 * ln_width)
+        bounds.update(xn + 0.5 * ln_width)
 
     @override
     def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
@@ -331,12 +371,12 @@ class XTickLabels(Element):
 
         font = Font(font_family, font_size)
 
-        if self._tick_labels is not None:
+        if self.tick_labels is not None:
             # Calculate precise bounds based on actual tick labels
             max_width = mm(0)
             max_height = mm(0)
 
-            for label in self._tick_labels:
+            for label in self.tick_labels:
                 label_width, label_height = font.get_extents(str(label))
                 if label_width.scalar_value() > max_width.scalar_value():
                     max_width = label_width
@@ -404,9 +444,6 @@ class YTickLabels(Element):
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
         fill = self.attrib["fill"]
-
-        assert isinstance(font_family, str)
-        assert isinstance(font_size, AbsLengths)
 
         g = Element(
             "g",
