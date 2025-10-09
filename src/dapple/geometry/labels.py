@@ -1,22 +1,25 @@
-from ..elements import Element
-from ..coordinates import AbsLengths, ResolveContext, Lengths, mm, vw, vh
+from ..elements import Element, VectorizedElement, RawText
+from ..coordinates import AbsLengths, CoordBounds, ResolveContext, Lengths, mm, vw, vh
 from ..layout import Position
 from ..config import ConfigKey
 from ..textextents import Font
+from ..scales import ScaleSet, Scale
 
-from typing import override
+from typing import override, final
+import numpy as np
 
 
 class XLabel(Element):
     """
     Draw a text label along the bottom of the plot for the x-axis.
     """
+
     def __init__(
-            self,
-            text: str,
-            font_family=ConfigKey("label_font_family"),
-            font_size=ConfigKey("label_font_size"),
-            fill=ConfigKey("label_fill"),
+        self,
+        text: str,
+        font_family=ConfigKey("label_font_family"),
+        font_size=ConfigKey("label_font_size"),
+        fill=ConfigKey("label_fill"),
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.BottomCenter,
@@ -26,7 +29,7 @@ class XLabel(Element):
             "font_size": font_size,
             "fill": fill,
         }
-        super().__init__("dapple:xlabel", attrib) # type: ignore
+        super().__init__("dapple:xlabel", attrib)  # type: ignore
 
     @override
     def resolve(self, ctx: ResolveContext) -> Element:
@@ -52,14 +55,15 @@ class XLabel(Element):
         y = text_height  # Position from top of the space allocated
 
         text_element = Element(
-            "text", {
+            "text",
+            {
                 "x": x,
                 "y": y,
                 "font-family": font_family,
                 "font-size": font_size,
                 "fill": fill,
                 "text-anchor": "middle",  # Center horizontally
-            }
+            },
         )
         text_element.text = text
 
@@ -89,12 +93,13 @@ class YLabel(Element):
     """
     Draw a rotated text label along the left side of the plot for the y-axis.
     """
+
     def __init__(
-            self,
-            text: str,
-            font_family=ConfigKey("label_font_family"),
-            font_size=ConfigKey("label_font_size"),
-            fill=ConfigKey("label_fill"),
+        self,
+        text: str,
+        font_family=ConfigKey("label_font_family"),
+        font_size=ConfigKey("label_font_size"),
+        fill=ConfigKey("label_fill"),
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.LeftCenter,
@@ -104,7 +109,7 @@ class YLabel(Element):
             "font_size": font_size,
             "fill": fill,
         }
-        super().__init__("dapple:ylabel", attrib) # type: ignore
+        super().__init__("dapple:ylabel", attrib)  # type: ignore
 
     @override
     def resolve(self, ctx: ResolveContext) -> Element:
@@ -134,7 +139,8 @@ class YLabel(Element):
         y_resolved = y.resolve(ctx)
 
         text_element = Element(
-            "text", {
+            "text",
+            {
                 "x": x,
                 "y": y,
                 "font-family": font_family,
@@ -142,7 +148,7 @@ class YLabel(Element):
                 "fill": fill,
                 "text-anchor": "middle",
                 "transform": f"rotate(-90, {x_resolved.serialize()}, {y_resolved.serialize()})",
-            }
+            },
         )
         text_element.text = text
 
@@ -173,12 +179,13 @@ class Title(Element):
     """
     Draw a text title at the top center of the plot.
     """
+
     def __init__(
-            self,
-            text: str,
-            font_family=ConfigKey("title_font_family"),
-            font_size=ConfigKey("title_font_size"),
-            fill=ConfigKey("title_fill"),
+        self,
+        text: str,
+        font_family=ConfigKey("title_font_family"),
+        font_size=ConfigKey("title_font_size"),
+        fill=ConfigKey("title_fill"),
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.TopCenter,
@@ -188,7 +195,7 @@ class Title(Element):
             "font_size": font_size,
             "fill": fill,
         }
-        super().__init__("dapple:title", attrib) # type: ignore
+        super().__init__("dapple:title", attrib)  # type: ignore
 
     @override
     def resolve(self, ctx: ResolveContext) -> Element:
@@ -210,14 +217,15 @@ class Title(Element):
         y = text_height  # Position from top of the space allocated
 
         text_element = Element(
-            "text", {
+            "text",
+            {
                 "x": x,
                 "y": y,
                 "font-family": font_family,
                 "font-size": font_size,
                 "fill": fill,
                 "text-anchor": "middle",  # Center horizontally
-            }
+            },
         )
         text_element.text = text
 
@@ -247,11 +255,12 @@ class XTickLabels(Element):
     """
     Draw tick labels along the bottom margin of the plot for the x-axis.
     """
+
     def __init__(
-            self,
-            font_family=ConfigKey("tick_label_font_family"),
-            font_size=ConfigKey("tick_label_font_size"),
-            fill=ConfigKey("tick_label_fill"),
+        self,
+        font_family=ConfigKey("tick_label_font_family"),
+        font_size=ConfigKey("tick_label_font_size"),
+        fill=ConfigKey("tick_label_fill"),
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.BottomLeft,
@@ -259,7 +268,7 @@ class XTickLabels(Element):
             "font_size": font_size,
             "fill": fill,
         }
-        super().__init__("dapple:xticklabels", attrib) # type: ignore
+        super().__init__("dapple:xticklabels", attrib)  # type: ignore
         self._tick_labels = None
 
     @override
@@ -279,22 +288,24 @@ class XTickLabels(Element):
         assert isinstance(x_ticks, Lengths)
 
         g = Element(
-            "g", {
+            "g",
+            {
                 "font-family": font_family,
                 "font-size": font_size,
                 "fill": fill,
                 "text-anchor": "middle",  # Center horizontally
-            }
+            },
         )
 
         # Add text elements for each tick label
         for i, (label, x_pos) in enumerate(zip(x_labels, x_ticks)):
             text_element = Element(
-                "text", {
+                "text",
+                {
                     "x": x_pos,
                     # "y": max_text_height,  # Position from top of the space allocated
                     "y": vh(1),
-                }
+                },
             )
             text_element.text = str(label)
             g.append(text_element)
@@ -305,6 +316,7 @@ class XTickLabels(Element):
     def apply_scales(self, scales):
         """Store tick labels for precise bounds calculation."""
         from ..scales import ScaleSet
+
         if "x" in scales:
             x_scale = scales["x"]
             self._tick_labels, _ = x_scale.ticks()
@@ -342,15 +354,21 @@ def xticklabels(*args, **kwargs):
     return XTickLabels(*args, **kwargs)
 
 
+@final
 class YTickLabels(Element):
     """
     Draw tick labels along the left margin of the plot for the y-axis.
     """
+
+    root: Element | None
+    tick_labels = list[str] | None
+    tick_positions = Lengths | None
+
     def __init__(
-            self,
-            font_family=ConfigKey("tick_label_font_family"),
-            font_size=ConfigKey("tick_label_font_size"),
-            fill=ConfigKey("tick_label_fill"),
+        self,
+        font_family=ConfigKey("tick_label_font_family"),
+        font_size=ConfigKey("tick_label_font_size"),
+        fill=ConfigKey("tick_label_fill"),
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.LeftTop,
@@ -358,11 +376,31 @@ class YTickLabels(Element):
             "font_size": font_size,
             "fill": fill,
         }
-        super().__init__("dapple:yticklabels", attrib) # type: ignore
-        self._tick_labels = None
+        super().__init__("dapple:yticklabels", attrib)  # type: ignore
+        self.root = None
+        self.tick_labels = None
+        self.tick_positions = None
 
     @override
     def resolve(self, ctx: ResolveContext) -> Element:
+        assert self.root is not None
+        return self.root.resolve(ctx)
+
+    @override
+    def apply_scales(self, scales: ScaleSet):
+        """
+        Once we are informed of the scales, we can acess the ticks and generate
+        all the geometry.
+        """
+        if "y" not in scales:
+            self.root = Element("g")
+            return
+
+        y_scale = scales["y"]
+        assert isinstance(y_scale, Scale)
+        tick_labels, tick_positions = y_scale.ticks()
+        assert isinstance(tick_positions, Lengths)
+
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
         fill = self.attrib["fill"]
@@ -370,43 +408,69 @@ class YTickLabels(Element):
         assert isinstance(font_family, str)
         assert isinstance(font_size, AbsLengths)
 
-        if "y" not in ctx.scales:
-            return Element("g")
-
-        y_scale = ctx.scales["y"]
-        y_labels, y_ticks = y_scale.ticks()
-        assert isinstance(y_ticks, Lengths)
-
         g = Element(
-            "g", {
+            "g",
+            {
                 "font-family": font_family,
                 "font-size": font_size,
                 "fill": fill,
                 "text-anchor": "end",  # Right-align text
                 "dominant-baseline": "middle",  # Center vertically
-            }
+            },
         )
 
-        # Add text elements for each tick label
-        for i, (label, y_pos) in enumerate(zip(y_labels, y_ticks)):
-            text_element = Element(
-                "text", {
+        g.append(
+            VectorizedElement(
+                "text",
+                {
                     "x": vw(1),
-                    "y": y_pos,
-                }
+                    "y": tick_positions,
+                },
+                *map(RawText, tick_labels),
             )
-            text_element.text = str(label)
-            g.append(text_element)
-
-        return g.resolve(ctx)
+        )
+        self.root = g
+        self.tick_labels = tick_labels
+        self.tick_positions = tick_positions
 
     @override
-    def apply_scales(self, scales):
-        """Store tick labels for precise bounds calculation."""
-        from ..scales import ScaleSet
-        if "y" in scales:
-            y_scale = scales["y"]
-            self._tick_labels, _ = y_scale.ticks()
+    def update_bounds(self, bounds: CoordBounds):
+        if self.tick_positions is None or self.tick_labels is None:
+            return
+
+        assert isinstance(self.tick_labels, np.ndarray)
+        assert isinstance(self.tick_positions, Lengths)
+
+        if len(self.tick_labels) == 0 or len(self.tick_positions) == 0:
+            return
+
+        font_family = self.attrib["font_family"]
+        font_size = self.attrib["font_size"]
+
+        assert isinstance(font_family, str)
+        assert isinstance(font_size, AbsLengths)
+
+        font = Font(font_family, font_size)
+
+        l0 = self.tick_labels[0]
+        assert isinstance(l0, str)
+        _l0_width, l0_height = font.get_extents(str(l0))
+        y0 = self.tick_positions[0]
+
+        ln = self.tick_labels[-1]
+        assert isinstance(ln, str)
+        _ln_width, ln_height = font.get_extents(str(ln))
+        yn = self.tick_positions[-1]
+
+        # add a little slop, since centering vertically doesn't necessarily put it
+        # on the centroid
+        l0_height += mm(1)
+        ln_height += mm(1)
+
+        bounds.update(y0 - 0.5 * l0_height)
+        bounds.update(y0 + 0.5 * l0_height)
+        bounds.update(yn - 0.5 * ln_height)
+        bounds.update(yn + 0.5 * ln_height)
 
     @override
     def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
@@ -418,12 +482,12 @@ class YTickLabels(Element):
 
         font = Font(font_family, font_size)
 
-        if self._tick_labels is not None:
+        if self.tick_labels is not None:
             # Calculate precise bounds based on actual tick labels
             max_width = mm(0)
             max_height = mm(0)
 
-            for label in self._tick_labels:
+            for label in self.tick_labels:
                 label_width, label_height = font.get_extents(str(label))
                 if label_width.scalar_value() > max_width.scalar_value():
                     max_width = label_width
