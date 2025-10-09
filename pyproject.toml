@@ -30,6 +30,12 @@ venv = ".venv"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.uv.workspace]
+members = [
+    "debug/notebook",
+    ".",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.4.1",

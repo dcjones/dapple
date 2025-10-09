@@ -28,6 +28,8 @@ class ChooseTicksParams:
 
 @dataclass
 class Config:
+    plot_width: AbsLengths = field(default_factory=lambda: mm(100))
+    plot_height: AbsLengths = field(default_factory=lambda: mm(75))
     pointsize: AbsLengths = field(default_factory=lambda: mm(0.4))
     pointcolor: Colors = field(default_factory=lambda: color("#333333"))
     discrete_cmap: Colormap = field(default_factory=lambda: Colormap("colorcet:cet_c6"))

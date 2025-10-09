@@ -24,6 +24,7 @@ from typing import (
     TypeVar,
     override,
 )
+from collections.abc import Iterable
 from io import StringIO
 from itertools import repeat
 from copy import copy
@@ -411,11 +412,16 @@ class VectorizedElement(Element):
 
 def viewport(
     children: Iterable[Element],
-    x: Lengths = mm(0),
-    y: Lengths = mm(0),
-    width: Optional[Lengths] = None,
-    height: Optional[Lengths] = None,
+    x: Lengths | None = None,
+    y: Lengths | None = None,
+    width: Lengths | None = None,
+    height: Lengths | None = None,
 ) -> Element:
+    if x is None:
+        x = mm(0)
+    if y is None:
+        y = mm(0)
+
     if width is None:
         width = vw(1) - x
     if height is None:

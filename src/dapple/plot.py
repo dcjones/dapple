@@ -379,11 +379,9 @@ class Plot(Element):
         # TODO: We should output xml declaration
 
         if clip:
-            buf = StringIO()
-            svg_root.serialize(buf)
-
+            svg_content = svg_root._repr_svg_()
             try:
-                copy_svg(buf.getvalue())
+                copy_svg(svg_content)
             except ClipboardError as e:
                 print(f"Warning: Failed to copy SVG to clipboard: {e}", file=sys.stderr)
 
@@ -484,6 +482,10 @@ class Plot(Element):
         except ExportError as e:
             print(f"Error exporting to PDF: {e}", file=sys.stderr)
             raise
+
+    def _repr_svg_(self) -> str:
+        config = self.get_as("dapple:config", Config, lambda: Config())
+        return self.svg(config.plot_width, config.plot_height)._repr_svg_()
 
 
 def plot(*args, **kwargs) -> Plot:
