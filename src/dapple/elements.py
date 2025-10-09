@@ -3,10 +3,8 @@ from .coordinates import (
     CoordBounds,
     Resolvable,
     CoordSet,
-    AbsCoordSet,
     AbsLengths,
     Lengths,
-    Transform,
     ResolveContext,
     Serializable,
     resolve,
@@ -15,21 +13,19 @@ from .coordinates import (
     vh,
     translate,
 )
-from .occupancy import Occupancy
 from .colors import Colors
 from .scales import ScaleSet
 from typing import (
+    cast,
+    final,
     Any,
-    Collection,
     TextIO,
     Callable,
-    Optional,
-    Iterable,
     TypeVar,
     override,
 )
+from io import StringIO
 from itertools import repeat
-from functools import singledispatch
 from copy import copy
 
 AttrType = TypeVar("AttrType")
@@ -43,7 +39,7 @@ class Element(Resolvable):
 
     tag: str
     attrib: dict[str, object]
-    text: str | None
+    text: str | list[str] | None
     children: list["Element"]
 
     def __init__(
@@ -61,7 +57,10 @@ class Element(Resolvable):
 
         self.children = []
         for arg in args:
-            self.children.append(arg)
+            if isinstance(arg, RawText):
+                self.text = arg.data
+            else:
+                self.children.append(arg)
 
     def __getitem__(self, index: int) -> "Element":
         return self.children[index]
@@ -83,8 +82,15 @@ class Element(Resolvable):
     def get(self, key: str, default: object | None = None) -> object | None:
         return self.attrib.get(key, default)
 
-    def get_as(self, key: str, expected_type: type[AttrType]) -> AttrType:
+    def get_as(
+        self,
+        key: str,
+        expected_type: type[AttrType],
+        default_fn: None | Callable[[], AttrType] = None,
+    ) -> AttrType:
         value = self.attrib.get(key)
+        if value is None and default_fn is not None:
+            value = default_fn()
         if value is None:
             raise KeyError(f"Attribute '{key}' not found")
         if not isinstance(value, expected_type):
@@ -147,8 +153,6 @@ class Element(Resolvable):
         # Special-cases handling particular SVG elements
         match self.tag:
             case "circle":
-                # TODO: For this to work we need to support scalar + vector length operations :(
-
                 x = self.get_as("cx", Lengths)
                 y = self.get_as("cy", Lengths)
                 r = self.get_as("r", Lengths)
@@ -185,15 +189,21 @@ class Element(Resolvable):
                 _ = output.write(f'{key}="{value}" ')
 
         if len(self) == 0 and self.text is None:
-            _ = output.write(f"/>\n")
+            _ = output.write("/>\n")
         else:
-            _ = output.write(f">\n")
+            _ = output.write(">\n")
             if self.text is not None:
+                assert isinstance(self.text, str)
                 _ = output.write(self.text)
             for child in self:
                 child.serialize(output, indent + 2)
             _ = output.write(" " * indent)
             _ = output.write(f"</{self.tag}>\n")
+
+    def _repr_svg_(self) -> str:
+        buf = StringIO()
+        self.serialize(buf)
+        return buf.getvalue()
 
     def delete_attributes_inplace(self, predicate: Callable[[str, Any], bool]):
         """
@@ -278,7 +288,7 @@ class Element(Resolvable):
 
         return mm(0), mm(0)
 
-    def apply_scales(self, scales: ScaleSet):
+    def apply_scales(self, _scales: ScaleSet):
         """
         Most elements don't need to implement this, but e.g. if an element needs
         to know what the ticks are, this is a useful way to get that info.
@@ -289,18 +299,50 @@ class Element(Resolvable):
         if "dapple:coords" not in self.attrib:
             self.set("dapple:coords", copy(new_coords))
         else:
-            coords = self.get("dapple:coords")
+            coords = cast(CoordSet, self.get_as("dapple:coords", dict))
             coords.update(new_coords)
 
 
+class RawText(Element):
+    """Special quasi-element used entirely for constructing Elements with text contents."""
+
+    data: str
+
+    def __init__(self, text: str):
+        self.data = text
+        super().__init__("dapple:__text__")
+
+    @override
+    def serialize(self, output: TextIO, indent: int = 0) -> None:
+        raise NotImplementedError("RawText elements should not be serialized directly.")
+
+
+@final
 class VectorizedElement(Element):
     """
     An element that is is given vector attribute values and is serialized into
     multiple elements. Useful for more efficiently dealing with plot geometry.
     """
 
-    def __init__(self, tag: str, attrib={}, **extra):
-        super().__init__(tag, attrib, **extra)
+    def __init__(
+        self,
+        tag: str,
+        attrib: dict[str, object] | None = None,
+        *args: Element,
+        **kwargs: object,
+    ):
+        texts: list[str] = []
+        nontext_args: list[Element] = []
+        for arg in args:
+            if isinstance(arg, RawText):
+                texts.append(arg.data)
+            else:
+                nontext_args.append(arg)
+
+        super().__init__(tag, attrib, *nontext_args, **kwargs)
+
+        if len(texts) > 0:
+            self.text = texts
 
     @override
     def similar(self, attrib: dict[str, object]) -> "VectorizedElement":
@@ -319,8 +361,22 @@ class VectorizedElement(Element):
                             )
                         nels = len(value)
 
-        keys = []
-        value_iters = []
+        texts: Iterable[str | None]
+        if self.text is not None:
+            assert isinstance(self.text, list)
+            if len(self.text) != 1 and len(self.text) != nels:
+                raise Exception("VectorizedElement text has inconsistent lengths")
+
+            if len(self.text) == 1:
+                texts = repeat(self.text[0], nels)
+            else:
+                texts = self.text
+
+        else:
+            texts = repeat(None, nels)
+
+        keys: list[str] = []
+        value_iters: list[Iterable[str]] = []
         for key, value in self.attrib.items():
             keys.append(key)
             if isinstance(value, Serializable):
@@ -334,16 +390,19 @@ class VectorizedElement(Element):
             else:
                 value_iters.append(repeat(str(value), nels))
 
-        for values in zip(*value_iters):
+        for text, *values in zip(texts, *value_iters):
             _ = output.write(" " * indent)
             _ = output.write(f"<{self.tag} ")
             for k, v in zip(keys, values):
                 _ = output.write(f'{k}="{v}" ')
 
-            if len(self) == 0:
-                _ = output.write(f"/>\n")
+            if len(self) == 0 and text is None:
+                _ = output.write("/>\n")
             else:
-                _ = output.write(f">\n")
+                _ = output.write(">\n")
+                if text is not None:
+                    assert isinstance(text, str)
+                    _ = output.write(text)
                 for child in self:
                     child.serialize(output, indent + 2)
                 _ = output.write(" " * indent)
