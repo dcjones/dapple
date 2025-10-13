@@ -39,6 +39,7 @@ class Key(Element):
         spacing=ConfigKey("key_spacing"),
         gradient_width=ConfigKey("key_gradient_width"),
         stroke_width=ConfigKey("tick_stroke_width"),
+        tick_length=ConfigKey("tick_length"),
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.RightCenter,
@@ -53,6 +54,7 @@ class Key(Element):
             "spacing": spacing,
             "gradient_width": gradient_width,
             "stroke-width": stroke_width,
+            "tick_length": tick_length,
         }
         super().__init__("dapple:key", attrib)  # type: ignore
         self._color_scale = None
@@ -152,12 +154,14 @@ class Key(Element):
         spacing = self.attrib["spacing"]
         gradient_width = self.attrib["gradient_width"]
         stroke_width = self.attrib["stroke-width"]
+        tick_length = self.attrib["tick_length"]
 
         assert isinstance(font_family, str)
         assert isinstance(font_size, AbsLengths)
         assert isinstance(spacing, AbsLengths)
         assert isinstance(gradient_width, AbsLengths)
         assert isinstance(stroke_width, AbsLengths)
+        assert isinstance(tick_length, AbsLengths)
 
         font = Font(font_family, font_size)
 
@@ -196,7 +200,7 @@ class Key(Element):
 
         # Add color stops based on the colormap
         # For continuous scales, we'll create a smooth gradient
-        n_stops = 10
+        n_stops = 20
         for i in range(n_stops):
             position = i / (n_stops - 1)
             # Map position to color using the scale's colormap
@@ -268,7 +272,7 @@ class Key(Element):
                 "line",
                 {
                     "x1": gradient_width,
-                    "x2": gradient_width + mm(3),
+                    "x2": gradient_width + tick_length,
                     "y1": tick_y_positions,
                     "y2": tick_y_positions,
                     "stroke": "black",
@@ -281,7 +285,7 @@ class Key(Element):
             text_element = Element(
                 "text",
                 {
-                    "x": gradient_width + mm(3) + spacing,
+                    "x": gradient_width + tick_length + spacing,
                     "y": y_pos,
                     "dominant-baseline": "middle",
                 },
