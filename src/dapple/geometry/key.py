@@ -1,4 +1,4 @@
-from ..elements import Element, VectorizedElement, pad
+from ..elements import Element, VectorizedElement, pad, Path
 from ..coordinates import (
     AbsLengths,
     CtxLengths,
@@ -252,34 +252,71 @@ class Key(Element):
             np.array(tick_positions_vals), "vh", CtxLenType.Pos
         )
 
-        # Draw tick marks using VectorizedElement
-        g.append(
-            Element(
-                "line",
-                attrib={
-                    "x1": gradient_width,
-                    "x2": gradient_width,
-                    "y1": vh(0),
-                    "y2": vh(1),
-                    "stroke": "black",
-                    "stroke-width": stroke_width,
-                },
+        # Draw axis line + end ticks as a single path when we have at least two ticks
+        if len(tick_y_positions) >= 2:
+            gw = gradient_width.scalar_value()
+            tl = tick_length.scalar_value()
+            combined_x = mm([gw + tl, gw, gw, gw + tl])
+            combined_y = CtxLengths(
+                np.array([0.0, 0.0, 1.0, 1.0]), "vh", CtxLenType.Pos
             )
-        )
 
-        g.append(
-            VectorizedElement(
-                "line",
-                {
-                    "x1": gradient_width,
-                    "x2": gradient_width + tick_length,
-                    "y1": tick_y_positions,
-                    "y2": tick_y_positions,
-                    "stroke": "black",
-                    "stroke-width": stroke_width,
-                },
+            g.append(
+                Path(
+                    combined_x,
+                    combined_y,
+                    **{"stroke": "black", "stroke-width": stroke_width, "fill": "none"},
+                )
             )
-        )
+
+            # Interior tick marks (exclude the two ends)
+            interior_vals = tick_y_positions.values[1:-1]
+            interior_y = CtxLengths(
+                interior_vals, tick_y_positions.unit, tick_y_positions.typ
+            )
+            if len(interior_y) > 0:
+                g.append(
+                    VectorizedElement(
+                        "line",
+                        {
+                            "x1": gradient_width,
+                            "x2": gradient_width + tick_length,
+                            "y1": interior_y,
+                            "y2": interior_y,
+                            "stroke": "black",
+                            "stroke-width": stroke_width,
+                        },
+                    )
+                )
+        else:
+            # Fallback: draw axis line and all ticks individually
+            g.append(
+                Element(
+                    "line",
+                    attrib={
+                        "x1": gradient_width,
+                        "x2": gradient_width,
+                        "y1": vh(0),
+                        "y2": vh(1),
+                        "stroke": "black",
+                        "stroke-width": stroke_width,
+                    },
+                )
+            )
+
+            g.append(
+                VectorizedElement(
+                    "line",
+                    {
+                        "x1": gradient_width,
+                        "x2": gradient_width + tick_length,
+                        "y1": tick_y_positions,
+                        "y2": tick_y_positions,
+                        "stroke": "black",
+                        "stroke-width": stroke_width,
+                    },
+                )
+            )
 
         for label, y_pos in zip(tick_labels, tick_y_positions):
             text_element = Element(
@@ -336,6 +373,7 @@ class Key(Element):
         assert isinstance(font_size, AbsLengths)
         assert isinstance(square_size, AbsLengths)
         assert isinstance(spacing, AbsLengths)
+        assert isinstance(gradient_width, AbsLengths)
 
         font = Font(font_family, font_size)
 
