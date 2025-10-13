@@ -1,5 +1,5 @@
 from numbers import Number
-from typing import TextIO, BinaryIO, override
+from typing import TextIO, BinaryIO, Callable, Collection, override
 from io import StringIO
 import numpy as np
 import sys
@@ -49,12 +49,38 @@ from .layout import Position
 
 class Plot(Element):
     def __init__(
-        self, defaults=[xgrids, ygrids, xticks, yticks, xticklabels, yticklabels]
+        self,
+        defaults: Collection[Callable[[], Element]] = (
+            xgrids,
+            ygrids,
+            xticks,
+            yticks,
+            xticklabels,
+            yticklabels,
+        ),
     ):
         super().__init__("dapple:plot")
 
         for default in defaults:
-            self.append(default())
+            default_el = default()
+            assert isinstance(default_el, Element)
+            default_el.attrib["dapple:default_element"] = True
+            self.append(default_el)
+
+    @override
+    def append(self, child: Element):
+        replace_index: int | None = None
+        for i, other_child in enumerate(self.children):
+            if other_child.tag == child.tag and other_child.attrib.get(
+                "dapple:default_element", False
+            ):
+                replace_index = i
+                break
+
+        if replace_index is not None:
+            self.children[replace_index] = child
+        else:
+            super().append(child)
 
     @override
     def resolve(self, ctx: ResolveContext) -> Element:
@@ -73,7 +99,7 @@ class Plot(Element):
         scaleset = self.attrib.get("dapple:scaleset", ScaleSet())
         assert isinstance(scaleset, dict)
 
-        all_numeric = dict()
+        all_numeric: dict[str, bool] = dict()
 
         def update_all_numeric_values(values: UnscaledValues):
             all_numeric[values.unit] = (
