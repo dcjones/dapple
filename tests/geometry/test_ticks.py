@@ -35,11 +35,7 @@ def test_yticks_function():
 
 def test_xticks_custom_parameters():
     """Test that XTicks accepts custom styling parameters."""
-    x_ticks = XTicks(
-        stroke="#ff0000",
-        stroke_width=mm(1.0),
-        tick_length=mm(3.0)
-    )
+    x_ticks = XTicks(stroke="#ff0000", stroke_width=mm(1.0), tick_length=mm(3.0))
     assert x_ticks.attrib["stroke"] == "#ff0000"
     assert x_ticks.attrib["stroke-width"] == mm(1.0)
     assert x_ticks.attrib["tick_length"] == mm(3.0)
@@ -47,11 +43,7 @@ def test_xticks_custom_parameters():
 
 def test_yticks_custom_parameters():
     """Test that YTicks accepts custom styling parameters."""
-    y_ticks = YTicks(
-        stroke="#00ff00",
-        stroke_width=mm(0.5),
-        tick_length=mm(4.0)
-    )
+    y_ticks = YTicks(stroke="#00ff00", stroke_width=mm(0.5), tick_length=mm(4.0))
     assert y_ticks.attrib["stroke"] == "#00ff00"
     assert y_ticks.attrib["stroke-width"] == mm(0.5)
     assert y_ticks.attrib["tick_length"] == mm(4.0)
@@ -67,10 +59,7 @@ def test_xticks_integration():
     x_data = np.array([1, 2, 3, 4, 5])
     y_data = np.array([2, 4, 1, 5, 3])
 
-    pl = plot(
-        points(x_data, y_data),
-        xticks()
-    )
+    pl = plot(points(x_data, y_data), xticks())
 
     # Should be able to generate SVG without errors
     svg_root = pl.svg(inch(4), inch(3))
@@ -88,10 +77,7 @@ def test_yticks_integration():
     x_data = np.array([1, 2, 3, 4, 5])
     y_data = np.array([2, 4, 1, 5, 3])
 
-    pl = plot(
-        points(x_data, y_data),
-        yticks()
-    )
+    pl = plot(points(x_data, y_data), yticks())
 
     # Should be able to generate SVG without errors
     svg_root = pl.svg(inch(4), inch(3))
@@ -109,11 +95,7 @@ def test_both_ticks_integration():
     x_data = np.array([1, 2, 3, 4, 5])
     y_data = np.array([2, 4, 1, 5, 3])
 
-    pl = plot(
-        points(x_data, y_data),
-        xticks(),
-        yticks()
-    )
+    pl = plot(points(x_data, y_data), xticks(), yticks())
 
     # Should be able to generate SVG without errors
     svg_root = pl.svg(inch(4), inch(3))
