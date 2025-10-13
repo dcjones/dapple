@@ -296,8 +296,8 @@ class Plot(Element):
         elif col_widths.sum() > total_width:
             print("Warning: Insufficient width to draw the plot.")
 
-        focus_height = total_height - row_heights.sum()
-        focus_width = total_width - col_widths.sum()
+        focus_height = total_height - row_heights.sum() + row_heights[i_focus]
+        focus_width = total_width - col_widths.sum() + col_widths[j_focus]
 
         root = Element("g")
         y = 0.0
