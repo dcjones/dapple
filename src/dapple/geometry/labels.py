@@ -1,5 +1,15 @@
 from ..elements import Element, VectorizedElement, RawText
-from ..coordinates import AbsLengths, CoordBounds, ResolveContext, Lengths, mm, vw, vh
+from ..coordinates import (
+    AbsLengths,
+    CoordBounds,
+    ResolveContext,
+    Lengths,
+    Resolvable,
+    Serializable,
+    mm,
+    vw,
+    vh,
+)
 from ..layout import Position
 from ..config import ConfigKey
 from ..textextents import Font
@@ -7,6 +17,62 @@ from ..scales import ScaleSet, Scale
 
 from typing import override, final
 import numpy as np
+
+
+class RotateTransforms(Resolvable, Serializable):
+    """
+    Generates a list of rotation transform strings for vectorized elements.
+    Each transform rotates around the corresponding (x, y) coordinate.
+    """
+
+    angle: float
+    x: Lengths
+    y: Lengths
+
+    def __init__(self, angle: float, x: Lengths, y: Lengths):
+        self.angle = angle
+        self.x = x
+        self.y = y
+
+    @override
+    def resolve(self, ctx: ResolveContext) -> "RotateTransforms":
+        """Resolve the x and y coordinates to absolute lengths."""
+        from ..coordinates import resolve
+
+        resolved_x = resolve(self.x, ctx)
+        resolved_y = resolve(self.y, ctx)
+        return RotateTransforms(self.angle, resolved_x, resolved_y)
+
+    @override
+    def serialize(self) -> list[str] | None:
+        # At serialization time, x and y should be resolved to AbsLengths
+        if isinstance(self.x, AbsLengths) and isinstance(self.y, AbsLengths):
+            x_vals = self.x.serialize()
+            y_vals = self.y.serialize()
+
+            # Handle both scalar and vector cases
+            if isinstance(x_vals, str):
+                x_list: list[str] = [x_vals]
+            else:
+                x_list = x_vals if x_vals is not None else []
+
+            if isinstance(y_vals, str):
+                y_list: list[str] = [y_vals]
+            else:
+                y_list = y_vals if y_vals is not None else []
+
+            # If x is scalar but y is vector, repeat x for each y
+            if len(x_list) == 1 and len(y_list) > 1:
+                x_list = x_list * len(y_list)
+
+            # If y is scalar but x is vector, repeat y for each x
+            if len(y_list) == 1 and len(x_list) > 1:
+                y_list = y_list * len(x_list)
+
+            return [f"rotate({self.angle}, {x}, {y})" for x, y in zip(x_list, y_list)]
+        else:
+            # Not yet resolved, return None to skip serialization
+            return None
 
 
 class XLabel(Element):
@@ -266,12 +332,14 @@ class XTickLabels(Element):
         font_family=ConfigKey("tick_label_font_family"),
         font_size=ConfigKey("tick_label_font_size"),
         fill=ConfigKey("tick_label_fill"),
+        rotate: bool = False,
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.BottomLeft,
             "font_family": font_family,
             "font_size": font_size,
             "fill": fill,
+            "dapple:rotate": rotate,
         }
         super().__init__("dapple:xticklabels", attrib)  # type: ignore
         self._tick_labels = None
@@ -293,6 +361,7 @@ class XTickLabels(Element):
 
         if "x" not in scales:
             self.root = Element("g")
+            return
 
         x_scale = scales["x"]
         assert isinstance(x_scale, Scale)
@@ -302,24 +371,37 @@ class XTickLabels(Element):
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
         fill = self.attrib["fill"]
+        rotate = self.attrib["dapple:rotate"]
 
-        g = Element(
-            "g",
-            {
-                "font-family": font_family,
-                "font-size": font_size,
-                "fill": fill,
-                "text-anchor": "middle",  # Center horizontally
-            },
-        )
+        g_attrib = {
+            "font-family": font_family,
+            "font-size": font_size,
+            "fill": fill,
+        }
+
+        if rotate:
+            g_attrib["text-anchor"] = "end"
+            g_attrib["dominant-baseline"] = "middle"
+        else:
+            g_attrib["text-anchor"] = "middle"  # Center horizontally
+
+        g = Element("g", g_attrib)
+
+        text_attrib: dict[str, object] = {
+            "x": tick_positions,
+        }
+
+        if rotate:
+            # Create a transform for each label that rotates around its anchor point
+            text_attrib["y"] = vh(0)
+            text_attrib["transform"] = RotateTransforms(-90, tick_positions, vh(0))
+        else:
+            text_attrib["y"] = vh(1)
 
         g.append(
             VectorizedElement(
                 "text",
-                {
-                    "x": tick_positions,
-                    "y": vh(1),
-                },
+                text_attrib,
                 *map(RawText, tick_labels),
             )
         )
@@ -340,6 +422,7 @@ class XTickLabels(Element):
 
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
+        rotate = self.attrib["dapple:rotate"]
 
         assert isinstance(font_family, str)
         assert isinstance(font_size, AbsLengths)
@@ -348,23 +431,35 @@ class XTickLabels(Element):
 
         l0 = self.tick_labels[0]
         assert isinstance(l0, str)
-        l0_width, _l0_height = font.get_extents(str(l0))
+        l0_width, l0_height = font.get_extents(str(l0))
         x0 = self.tick_positions[0]
 
         ln = self.tick_labels[-1]
         assert isinstance(ln, str)
-        ln_width, _ln_height = font.get_extents(str(ln))
+        ln_width, ln_height = font.get_extents(str(ln))
         xn = self.tick_positions[-1]
 
-        bounds.update(x0 - 0.5 * l0_width)
-        bounds.update(x0 + 0.5 * l0_width)
-        bounds.update(xn - 0.5 * ln_width)
-        bounds.update(xn + 0.5 * ln_width)
+        if rotate:
+            # When rotated 90 degrees, height becomes width in the x-direction
+            # add a little slop
+            l0_height += mm(1)
+            ln_height += mm(1)
+
+            bounds.update(x0 - 0.5 * l0_height)
+            bounds.update(x0 + 0.5 * l0_height)
+            bounds.update(xn - 0.5 * ln_height)
+            bounds.update(xn + 0.5 * ln_height)
+        else:
+            bounds.update(x0 - 0.5 * l0_width)
+            bounds.update(x0 + 0.5 * l0_width)
+            bounds.update(xn - 0.5 * ln_width)
+            bounds.update(xn + 0.5 * ln_width)
 
     @override
     def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
+        rotate = self.attrib["dapple:rotate"]
 
         assert isinstance(font_family, str)
         assert isinstance(font_size, AbsLengths)
@@ -383,11 +478,18 @@ class XTickLabels(Element):
                 if label_height.scalar_value() > max_height.scalar_value():
                     max_height = label_height
 
-            return (max_width, max_height)
+            if rotate:
+                # When rotated 90 degrees, width and height are swapped
+                return (max_height, max_width)
+            else:
+                return (max_width, max_height)
         else:
             # Fall back to estimate based on a typical label
             typical_width, typical_height = font.get_extents("0.00")
-            return (typical_width, typical_height)
+            if rotate:
+                return (typical_height, typical_width)
+            else:
+                return (typical_width, typical_height)
 
 
 def xticklabels(*args, **kwargs):
@@ -409,12 +511,14 @@ class YTickLabels(Element):
         font_family=ConfigKey("tick_label_font_family"),
         font_size=ConfigKey("tick_label_font_size"),
         fill=ConfigKey("tick_label_fill"),
+        rotate: bool = False,
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.LeftTop,
             "font_family": font_family,
             "font_size": font_size,
             "fill": fill,
+            "dapple:rotate": rotate,
         }
         super().__init__("dapple:yticklabels", attrib)  # type: ignore
         self.root = None
@@ -444,25 +548,36 @@ class YTickLabels(Element):
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
         fill = self.attrib["fill"]
+        rotate = self.attrib["dapple:rotate"]
 
-        g = Element(
-            "g",
-            {
-                "font-family": font_family,
-                "font-size": font_size,
-                "fill": fill,
-                "text-anchor": "end",  # Right-align text
-                "dominant-baseline": "middle",  # Center vertically
-            },
-        )
+        g_attrib = {
+            "font-family": font_family,
+            "font-size": font_size,
+            "fill": fill,
+        }
+
+        if rotate:
+            g_attrib["text-anchor"] = "middle"
+            g_attrib["dominant-baseline"] = "auto"
+        else:
+            g_attrib["text-anchor"] = "end"  # Right-align text
+            g_attrib["dominant-baseline"] = "middle"  # Center vertically
+
+        g = Element("g", g_attrib)
+
+        text_attrib: dict[str, object] = {
+            "x": vw(1),
+            "y": tick_positions,
+        }
+
+        if rotate:
+            # Create a transform for each label that rotates around its anchor point
+            text_attrib["transform"] = RotateTransforms(-90, vw(1), tick_positions)
 
         g.append(
             VectorizedElement(
                 "text",
-                {
-                    "x": vw(1),
-                    "y": tick_positions,
-                },
+                text_attrib,
                 *map(RawText, tick_labels),
             )
         )
@@ -483,6 +598,7 @@ class YTickLabels(Element):
 
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
+        rotate = self.attrib["dapple:rotate"]
 
         assert isinstance(font_family, str)
         assert isinstance(font_size, AbsLengths)
@@ -491,28 +607,40 @@ class YTickLabels(Element):
 
         l0 = self.tick_labels[0]
         assert isinstance(l0, str)
-        _l0_width, l0_height = font.get_extents(str(l0))
+        l0_width, l0_height = font.get_extents(str(l0))
         y0 = self.tick_positions[0]
 
         ln = self.tick_labels[-1]
         assert isinstance(ln, str)
-        _ln_width, ln_height = font.get_extents(str(ln))
+        ln_width, ln_height = font.get_extents(str(ln))
         yn = self.tick_positions[-1]
 
-        # add a little slop, since centering vertically doesn't necessarily put it
-        # on the centroid
-        l0_height += mm(1)
-        ln_height += mm(1)
+        if rotate:
+            # When rotated 90 degrees, width becomes height in the y-direction
+            # add a little slop
+            l0_width += mm(1)
+            ln_width += mm(1)
 
-        bounds.update(y0 - 0.5 * l0_height)
-        bounds.update(y0 + 0.5 * l0_height)
-        bounds.update(yn - 0.5 * ln_height)
-        bounds.update(yn + 0.5 * ln_height)
+            bounds.update(y0 - 0.5 * l0_width)
+            bounds.update(y0 + 0.5 * l0_width)
+            bounds.update(yn - 0.5 * ln_width)
+            bounds.update(yn + 0.5 * ln_width)
+        else:
+            # add a little slop, since centering vertically doesn't necessarily put it
+            # on the centroid
+            l0_height += mm(1)
+            ln_height += mm(1)
+
+            bounds.update(y0 - 0.5 * l0_height)
+            bounds.update(y0 + 0.5 * l0_height)
+            bounds.update(yn - 0.5 * ln_height)
+            bounds.update(yn + 0.5 * ln_height)
 
     @override
     def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
+        rotate = self.attrib["dapple:rotate"]
 
         assert isinstance(font_family, str)
         assert isinstance(font_size, AbsLengths)
@@ -531,11 +659,18 @@ class YTickLabels(Element):
                 if label_height.scalar_value() > max_height.scalar_value():
                     max_height = label_height
 
-            return (max_width, max_height)
+            if rotate:
+                # When rotated 90 degrees, width and height are swapped
+                return (max_height, max_width)
+            else:
+                return (max_width, max_height)
         else:
             # Fall back to estimate based on a typical label
             typical_width, typical_height = font.get_extents("0.00")
-            return (typical_width, typical_height)
+            if rotate:
+                return (typical_height, typical_width)
+            else:
+                return (typical_width, typical_height)
 
 
 def yticklabels(*args, **kwargs):
