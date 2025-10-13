@@ -1,10 +1,24 @@
 from ..elements import Element, VectorizedElement
-from ..coordinates import AbsLengths, CtxLengths, CtxLenType, Resolvable, ResolveContext, Lengths, vh, vw, mm
+from ..coordinates import (
+    AbsLengths,
+    CtxLengths,
+    CtxLenType,
+    CoordTransform,
+    Resolvable,
+    ResolveContext,
+    Lengths,
+    vh,
+    vhv,
+    vw,
+    cy,
+    mm,
+)
 from ..layout import Position
 from ..config import ConfigKey
 from ..textextents import Font
 from ..colors import Colors
 from ..scales import ScaleDiscreteColor, ScaleContinuousColor
+from .bars import Bar
 
 from typing import override
 import numpy as np
@@ -15,15 +29,16 @@ class Key(Element):
     Draw a color key/legend that shows colors and their labels.
     By default positioned to the right of the plot.
     """
+
     def __init__(
-            self,
-            font_family=ConfigKey("tick_label_font_family"),
-            font_size=ConfigKey("tick_label_font_size"),
-            fill=ConfigKey("tick_label_fill"),
-            square_size=ConfigKey("key_square_size"),
-            spacing=ConfigKey("key_spacing"),
-            gradient_width=ConfigKey("key_gradient_width"),
-            stroke_width=ConfigKey("tick_stroke_width"),
+        self,
+        font_family=ConfigKey("tick_label_font_family"),
+        font_size=ConfigKey("tick_label_font_size"),
+        fill=ConfigKey("tick_label_fill"),
+        square_size=ConfigKey("key_square_size"),
+        spacing=ConfigKey("key_spacing"),
+        gradient_width=ConfigKey("key_gradient_width"),
+        stroke_width=ConfigKey("tick_stroke_width"),
     ):
         attrib: dict[str, object] = {
             "dapple:position": Position.RightCenter,
@@ -39,7 +54,7 @@ class Key(Element):
             "gradient_width": gradient_width,
             "stroke-width": stroke_width,
         }
-        super().__init__("dapple:key", attrib) # type: ignore
+        super().__init__("dapple:key", attrib)  # type: ignore
         self._color_scale = None
         self._labels = None
         self._colors = None
@@ -75,11 +90,12 @@ class Key(Element):
         assert isinstance(spacing, AbsLengths)
 
         g = Element(
-            "g", {
+            "g",
+            {
                 "font-family": font_family,
                 "font-size": font_size,
                 "fill": fill,
-            }
+            },
         )
 
         # Calculate positions for each key item
@@ -100,24 +116,26 @@ class Key(Element):
         # Draw color squares using VectorizedElement
         g.append(
             VectorizedElement(
-                "rect", {
+                "rect",
+                {
                     "x": mm(0),
                     "y": y_positions,
                     "width": square_size,
                     "height": square_size,
                     "fill": self._colors,
-                }
+                },
             )
         )
 
         # Draw labels - text content cannot be easily vectorized, so use individual elements
         for i, label in enumerate(self._labels):
             text_element = Element(
-                "text", {
+                "text",
+                {
                     "x": mm(square_size_val + spacing_val),
                     "y": mm(y_positions_vals[i] + square_size_val * 0.5),
                     "dominant-baseline": "middle",
-                }
+                },
             )
             text_element.text = str(label)
             g.append(text_element)
@@ -146,28 +164,32 @@ class Key(Element):
 
         # Create gradient definition
         gradient_id = "key-gradient"
-        gradient_height = vh(1)  # Use full plot height
-        gradient_width_val = gradient_width.scalar_value()
+        gradient_height = vhv(1)  # Use full plot height
         spacing_val = spacing.scalar_value()
 
+        # TODO: Fucke. We need to use the bar geometry!
+
         g = Element(
-            "g", {
+            "g",
+            {
                 "font-family": font_family,
                 "font-size": font_size,
                 "fill": fill,
-            }
+                "dapple:coords": {"vh": CoordTransform(vh(-1), vh(1))},
+            },
         )
 
         # Create defs element for gradient
         defs = Element("defs")
         linear_gradient = Element(
-            "linearGradient", {
+            "linearGradient",
+            {
                 "id": gradient_id,
                 "x1": "0%",
-                "y1": "0%",
+                "y1": "100%",
                 "x2": "0%",
-                "y2": "100%",
-            }
+                "y2": "0%",
+            },
         )
 
         # Add color stops based on the colormap
@@ -176,7 +198,7 @@ class Key(Element):
         for i in range(n_stops):
             position = i / (n_stops - 1)
             # Map position to color using the scale's colormap
-            if hasattr(self._color_scale, 'colormap'):
+            if hasattr(self._color_scale, "colormap"):
                 colormap = self._color_scale.colormap
                 # Call the colormap with a numpy array
                 color_rgba = colormap(np.array([position]))
@@ -189,10 +211,11 @@ class Key(Element):
                 color_hex = "#000000"  # fallback
 
             stop = Element(
-                "stop", {
+                "stop",
+                {
                     "offset": f"{position * 100}%",
                     "stop-color": color_hex,
-                }
+                },
             )
             linear_gradient.append(stop)
 
@@ -200,15 +223,14 @@ class Key(Element):
         g.append(defs)
 
         # Draw gradient rectangle
-        gradient_rect = Element(
-            "rect", {
-                "x": mm(0),
-                "y": mm(0),
-                "width": mm(gradient_width_val),
-                "height": gradient_height,
-                "fill": f"url(#{gradient_id})",
-            }
+        gradient_rect = Bar(
+            mm(0),
+            vh(0),
+            gradient_width,
+            gradient_height,
+            fill=f"url(#{gradient_id})",
         )
+
         g.append(gradient_rect)
 
         # Calculate tick positions using vh coordinates
@@ -220,46 +242,47 @@ class Key(Element):
                 tick_positions_vals.append(0.5)
 
         # Create Lengths array for tick positions
-        tick_y_positions = CtxLengths(np.array(tick_positions_vals), "vh", CtxLenType.Pos)
+        tick_y_positions = CtxLengths(
+            np.array(tick_positions_vals), "vh", CtxLenType.Pos
+        )
 
         # Draw tick marks using VectorizedElement
-        g.append(Element(
-            "line", attrib={
-                "x1": mm(gradient_width_val),
-                "x2": mm(gradient_width_val),
-                "y1": vh(0),
-                "y2": vh(1),
-                "stroke": "black",
-                "stroke-width": stroke_width,
-            }
-        ))
+        g.append(
+            Element(
+                "line",
+                attrib={
+                    "x1": gradient_width,
+                    "x2": gradient_width,
+                    "y1": vh(0),
+                    "y2": vh(1),
+                    "stroke": "black",
+                    "stroke-width": stroke_width,
+                },
+            )
+        )
 
         g.append(
             VectorizedElement(
-                "line", {
-                    "x1": mm(gradient_width_val),
-                    "x2": mm(gradient_width_val + 3),
+                "line",
+                {
+                    "x1": gradient_width,
+                    "x2": gradient_width + mm(3),
                     "y1": tick_y_positions,
                     "y2": tick_y_positions,
                     "stroke": "black",
                     "stroke-width": stroke_width,
-                }
+                },
             )
         )
 
-        # Draw tick labels - text content cannot be easily vectorized, so use individual elements
-        for i, label in enumerate(tick_labels):
-            if len(tick_labels) > 1:
-                tick_y = vh(i / (len(tick_labels) - 1))
-            else:
-                tick_y = vh(0.5)
-
+        for label, y_pos in zip(tick_labels, tick_y_positions):
             text_element = Element(
-                "text", {
-                    "x": mm(gradient_width_val + 3 + spacing_val),
-                    "y": tick_y,
+                "text",
+                {
+                    "x": gradient_width + mm(3) + spacing,
+                    "y": y_pos,
                     "dominant-baseline": "middle",
-                }
+                },
             )
             text_element.text = str(label)
             g.append(text_element)
@@ -295,7 +318,10 @@ class Key(Element):
 
         font = Font(font_family, font_size)
 
-        if isinstance(self._color_scale, ScaleDiscreteColor) and self._labels is not None:
+        if (
+            isinstance(self._color_scale, ScaleDiscreteColor)
+            and self._labels is not None
+        ):
             # Calculate bounds for discrete scale
             max_text_width_val = 0.0
             total_height_val = 0.0
@@ -342,7 +368,9 @@ class Key(Element):
 
                 total_text_height_val += text_height_val
 
-            total_width_val = gradient_width_val + tick_length_val + spacing_val + max_text_width_val
+            total_width_val = (
+                gradient_width_val + tick_length_val + spacing_val + max_text_width_val
+            )
             return (mm(total_width_val), mm(total_text_height_val))
 
         else:

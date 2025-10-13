@@ -464,6 +464,10 @@ class CtxLengths(Lengths):
     def units(self) -> set[str]:
         return set([self.unit])
 
+    def __iter__(self):
+        for value in self.values:
+            yield ctxlengths(value, self.unit, self.typ)
+
 
 @singledispatch
 def ctxlengths(value, unit: str, typ: CtxLenType) -> CtxLengths:
