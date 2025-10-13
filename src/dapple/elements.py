@@ -10,7 +10,9 @@ from .coordinates import (
     resolve,
     mm,
     vw,
+    vwv,
     vh,
+    vhv,
     translate,
 )
 from .colors import Colors
@@ -438,3 +440,26 @@ def viewport(
         },
         *children,
     )
+
+
+def pad(
+    el: Element,
+    padding: None | AbsLengths = None,
+    top: None | AbsLengths = None,
+    right: None | AbsLengths = None,
+    bottom: None | AbsLengths = None,
+    left: None | AbsLengths = None,
+) -> Element:
+    if padding is None:
+        padding = mm(0)
+
+    if top is None:
+        top = padding
+    if right is None:
+        right = padding
+    if bottom is None:
+        bottom = padding
+    if left is None:
+        left = padding
+
+    return viewport([el], left, top, vwv(1) - left - right, vhv(1) - top - bottom)

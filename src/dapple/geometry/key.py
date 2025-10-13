@@ -1,4 +1,4 @@
-from ..elements import Element, VectorizedElement
+from ..elements import Element, VectorizedElement, pad
 from ..coordinates import (
     AbsLengths,
     CtxLengths,
@@ -20,7 +20,7 @@ from ..colors import Colors
 from ..scales import ScaleDiscreteColor, ScaleContinuousColor
 from .bars import Bar
 
-from typing import override
+from typing import override, cast
 import numpy as np
 
 
@@ -159,6 +159,8 @@ class Key(Element):
         assert isinstance(gradient_width, AbsLengths)
         assert isinstance(stroke_width, AbsLengths)
 
+        font = Font(font_family, font_size)
+
         # Get tick information from the continuous scale
         tick_labels, tick_positions = self._color_scale.ticks()
 
@@ -287,7 +289,22 @@ class Key(Element):
             text_element.text = str(label)
             g.append(text_element)
 
-        return g.resolve(ctx)
+        top_padding = mm(0)
+        bottom_padding = mm(0)
+        nudge = mm(1)
+        if len(tick_y_positions) > 1:
+            if tick_y_positions[0] == vh(0):
+                _text_width, text_height = font.get_extents(str(tick_labels[0]))
+                bottom_padding = 0.5 * text_height + nudge
+            if tick_y_positions[-1] == vh(1):
+                _text_width, text_height = font.get_extents(str(tick_labels[-1]))
+                top_padding = 0.5 * text_height + nudge
+
+        return pad(
+            g,
+            top=cast(AbsLengths, top_padding),
+            bottom=cast(AbsLengths, bottom_padding),
+        ).resolve(ctx)
 
     @override
     def apply_scales(self, scales):
