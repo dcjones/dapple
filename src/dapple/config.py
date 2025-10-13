@@ -81,7 +81,7 @@ class Config:
     tick_label_fill: Colors = field(default_factory=lambda: color("#333333"))
 
     # Key configuration
-    key_square_size: AbsLengths = field(default_factory=lambda: mm(4))
+    key_square_size: AbsLengths = field(default_factory=lambda: mm(2.5))
     key_spacing: AbsLengths = field(default_factory=lambda: mm(1))
     key_gradient_width: AbsLengths = field(default_factory=lambda: mm(4))
 
