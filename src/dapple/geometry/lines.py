@@ -5,7 +5,7 @@ from numbers import Number
 import numpy as np
 from collections import defaultdict
 
-from ..elements import Element
+from ..elements import Element, Path, PathData
 from ..scales import length_params, color_params, UnscaledValues
 from ..coordinates import (
     CtxLenType,
@@ -16,59 +16,6 @@ from ..coordinates import (
     resolve,
 )
 from ..config import ConfigKey
-
-
-class PathData(Serializable):
-    """Generates SVG path data string from resolved coordinates."""
-
-    def __init__(self, x_coords: AbsLengths, y_coords: AbsLengths):
-        if len(x_coords.values) != len(y_coords.values):
-            raise ValueError("x and y coordinate arrays must have the same length")
-        if len(x_coords.values) < 2:
-            raise ValueError("Path must have at least 2 points")
-
-        self.x_coords = x_coords
-        self.y_coords = y_coords
-
-    def serialize(self) -> str:
-        """Generate SVG path string from coordinates."""
-        if len(self.x_coords.values) == 0:
-            return ""
-
-        # Convert coordinates to strings
-        path_parts = []
-
-        # Move to first point
-        x0, y0 = self.x_coords.values[0], self.y_coords.values[0]
-        path_parts.append(f"M {x0:.3f} {y0:.3f}")
-
-        # Line to subsequent points
-        for x, y in zip(self.x_coords.values[1:], self.y_coords.values[1:]):
-            path_parts.append(f"L {x:.3f} {y:.3f}")
-
-        return " ".join(path_parts)
-
-
-class Path(Element):
-    """Path element that resolves to SVG path with proper coordinate handling."""
-
-    def __init__(self, x_coords, y_coords, **kwargs):
-        super().__init__(tag="dapple:path")
-        self.attrib = {"x": x_coords, "y": y_coords, **kwargs}
-
-    def resolve(self, ctx: ResolveContext) -> Element:
-        """Resolve to SVG path element."""
-
-        resolved_attrib = resolve(self.attrib, ctx)
-
-        x_coords = resolved_attrib.pop("x")
-        y_coords = resolved_attrib.pop("y")
-
-        # Generate path data
-        path_data = PathData(x_coords, y_coords)
-
-        # Create SVG path element with resolved attributes
-        return Element("path", {"d": path_data, **resolved_attrib})
 
 
 def _adaptive_sample_function(
