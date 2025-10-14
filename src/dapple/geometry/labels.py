@@ -384,6 +384,7 @@ class XTickLabels(Element):
             g_attrib["dominant-baseline"] = "middle"
         else:
             g_attrib["text-anchor"] = "middle"  # Center horizontally
+            g_attrib["dominant-baseline"] = "hanging"
 
         g = Element("g", g_attrib)
 
@@ -396,7 +397,7 @@ class XTickLabels(Element):
             text_attrib["y"] = vh(0)
             text_attrib["transform"] = RotateTransforms(-90, tick_positions, vh(0))
         else:
-            text_attrib["y"] = vh(1)
+            text_attrib["y"] = vh(0)
 
         g.append(
             VectorizedElement(

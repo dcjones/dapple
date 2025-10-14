@@ -137,7 +137,7 @@ class Config:
 
     # Title configuration
     title_font_family: str = "DejaVu Sans"
-    title_font_size: AbsLengths = field(default_factory=lambda: mm(4.5))
+    title_font_size: AbsLengths = field(default_factory=lambda: mm(4.8))
     title_fill: Colors = field(default_factory=lambda: color("#333333"))
 
     # Tick label configuration
