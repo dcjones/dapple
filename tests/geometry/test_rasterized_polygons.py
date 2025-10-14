@@ -219,14 +219,33 @@ class TestRasterizedPolygonsResolve:
         assert resolved.tag == "image"
         assert resolved.attrib["href"].startswith("data:image/png;base64,")
 
-    def test_polygon_with_hole_raises(self):
-        # A square with a hole inside
+    def test_polygon_with_hole_works(self):
+        # A square with a hole inside - should work with mapbox-earcut
         shell = [(0, 0), (50, 0), (50, 50), (0, 50), (0, 0)]
         hole = [(10, 10), (40, 10), (40, 40), (10, 40), (10, 10)]
         p = geom.Polygon(shell, holes=[hole])
 
-        with pytest.raises(NotImplementedError):
-            _ = rasterized_polygons([p])
+        # Should not raise - holes are now supported
+        element = rasterized_polygons([p], color=color("blue"), dpi=150.0)
+
+        # Verify element was created
+        assert element.tag == "dapple:rasterized_polygons"
+        assert "x" in element.attrib
+        assert "y" in element.attrib
+
+        # Verify it resolves to an image
+        ctx = self._create_test_context_from_geoms([p])
+
+        # Apply scales to UnscaledValues before resolve, matching project pattern
+        element.rewrite_attributes_inplace(
+            lambda _key, obj: obj.accept_scale(ctx.scales)
+            if obj.unit in ("x", "y")
+            else obj,
+            UnscaledValues,
+        )
+
+        resolved = element.resolve(ctx)
+        assert resolved.tag == "image"
 
     def test_color_length_mismatch_raises_on_resolve(self):
         # Pass 3 colors for 2 polygons -> should error at resolve time

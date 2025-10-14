@@ -9,6 +9,13 @@ from ..moderngl_utils import render_triangles_to_texture, calculate_dpi_size
 from ..colors import Colors
 from .image import ImageElement
 
+try:
+    import mapbox_earcut as earcut
+
+    HAS_EARCUT = True
+except ImportError:
+    HAS_EARCUT = False
+
 
 def rasterized_polygons(
     polygons, color=ConfigKey("linecolor"), dpi=ConfigKey("rasterize_dpi")
@@ -42,6 +49,12 @@ class RasterizedPolygonsElement(Element):
                 "rasterized_polygons requires shapely. Install with: pip install shapely"
             ) from e
 
+        if not HAS_EARCUT:
+            raise ImportError(
+                "rasterized_polygons requires mapbox-earcut for fast triangulation. "
+                "Install with: pip install mapbox-earcut"
+            )
+
         # Normalize input to a flat list of Polygons
         poly_list: List = []
         self._flatten_polygons(polygons, poly_list)
@@ -52,12 +65,6 @@ class RasterizedPolygonsElement(Element):
             if not isinstance(poly, _geom.Polygon):
                 continue
 
-            # For now, only support polygons without holes
-            if len(poly.interiors) > 0:
-                raise NotImplementedError(
-                    "rasterized_polygons currently does not support holes in polygons."
-                )
-
             # Extract exterior coordinates (drop closing duplicate point)
             coords = np.asarray(poly.exterior.coords, dtype=np.float64)
             if coords.shape[0] < 4:
@@ -65,12 +72,11 @@ class RasterizedPolygonsElement(Element):
                 continue
             coords = coords[:-1, :]  # drop repeated last=first
 
-            # Use raw polygon coordinates; scaling happens later in resolve
-            pts = coords.astype(np.float64)
-            if pts.shape[0] < 3:
+            if coords.shape[0] < 3:
                 continue
 
-            tris = _triangulate_polygon_earclip(pts)
+            # Triangulate using mapbox-earcut
+            tris = _triangulate_polygon_earcut(poly, coords)
             if len(tris) == 0:
                 continue
 
@@ -267,136 +273,54 @@ def _colors_for_triangles(
     )
 
 
-def _triangulate_polygon_earclip(vertices: np.ndarray) -> List[np.ndarray]:
+def _triangulate_polygon_earcut(polygon, coords: np.ndarray) -> List[np.ndarray]:
     """
-    Triangulate a simple polygon (no holes) using ear clipping.
-    vertices: (N, 2) array in CCW or CW order. Returns list of triangles (3, 2).
+    Triangulate a polygon using mapbox-earcut (fast C++ implementation).
 
-    This is a straightforward O(N^2) implementation suitable for typical plot polygons.
+    Args:
+        polygon: Shapely Polygon object (used to extract holes if present)
+        coords: (N, 2) array of exterior coordinates (already without closing duplicate)
+
+    Returns:
+        List of triangle arrays, each of shape (3, 2)
     """
-    # Remove duplicate consecutive points and ensure at least 3 unique vertices
-    verts = _remove_duplicate_consecutive(vertices)
-    if verts.shape[0] < 3:
+    # Keep coordinates in (N, 2) shape for earcut
+    vertices = coords.astype(np.float64)
+
+    # Handle holes if present
+    # rings should contain cumulative end indices for each ring
+    rings = [len(coords)]  # End index of exterior ring
+
+    if len(polygon.interiors) > 0:
+        # Add hole coordinates
+        hole_coords_list = []
+        for interior in polygon.interiors:
+            hole_coords = np.asarray(interior.coords, dtype=np.float64)[:-1, :]
+            if hole_coords.shape[0] >= 3:
+                hole_coords_list.append(hole_coords)
+                rings.append(rings[-1] + len(hole_coords))  # Cumulative end index
+
+        # Append all hole vertices
+        if hole_coords_list:
+            all_hole_coords = np.vstack(hole_coords_list)
+            vertices = np.vstack([vertices, all_hole_coords])
+
+    # Triangulate using earcut
+    try:
+        indices = earcut.triangulate_float64(vertices, rings)
+    except Exception:
+        # Fallback to empty triangulation on error
         return []
 
-    # Ensure CCW orientation for consistency
-    if _signed_area(verts) < 0.0:
-        verts = verts[::-1, :]
+    if len(indices) == 0:
+        return []
 
-    n = verts.shape[0]
-    V = list(range(n))  # indices into verts
-    triangles: List[np.ndarray] = []
-
-    count_guard = 0
-    max_iters = 3 * n  # simple guard to avoid infinite loops on degeneracy
-
-    while len(V) > 3 and count_guard < max_iters:
-        ear_found = False
-        m = len(V)
-        for i in range(m):
-            i0 = V[(i - 1) % m]
-            i1 = V[i]
-            i2 = V[(i + 1) % m]
-
-            a = verts[i0]
-            b = verts[i1]
-            c = verts[i2]
-
-            if not _is_convex(a, b, c):
-                continue
-
-            # Check if any other vertex lies in triangle (a,b,c)
-            has_inside = False
-            for j in range(m):
-                idx = V[j]
-                if idx in (i0, i1, i2):
-                    continue
-                p = verts[idx]
-                if _point_in_triangle(p, a, b, c):
-                    has_inside = True
-                    break
-
-            if not has_inside:
-                # Ear found
-                triangles.append(np.array([a, b, c], dtype=np.float64))
-                del V[i]
-                ear_found = True
-                break
-
-        if not ear_found:
-            # Degenerate or self-intersecting polygon; try to fan triangulate remaining as fallback
-            # This is a last-resort attempt; may fail for highly degenerate inputs.
-            if len(V) >= 3:
-                base = V[0]
-                for k in range(1, len(V) - 1):
-                    triangles.append(
-                        np.array(
-                            [verts[base], verts[V[k]], verts[V[k + 1]]],
-                            dtype=np.float64,
-                        )
-                    )
-                V = []
-            break
-
-        count_guard += 1
-
-    if len(V) == 3:
-        a = verts[V[0]]
-        b = verts[V[1]]
-        c = verts[V[2]]
-        triangles.append(np.array([a, b, c], dtype=np.float64))
+    # Convert indices to list of triangle coordinate arrays
+    triangles = []
+    for i in range(0, len(indices), 3):
+        if i + 2 < len(indices):
+            tri_indices = indices[i : i + 3]
+            triangle = vertices[tri_indices]
+            triangles.append(triangle)
 
     return triangles
-
-
-def _remove_duplicate_consecutive(pts: np.ndarray, tol: float = 1e-12) -> np.ndarray:
-    """Remove exact or near-duplicate consecutive points (including closing duplicate)."""
-    if pts.shape[0] <= 1:
-        return pts
-    out = [pts[0]]
-    for i in range(1, pts.shape[0]):
-        if np.linalg.norm(pts[i] - out[-1]) > tol:
-            out.append(pts[i])
-    # Also ensure first != last
-    if len(out) >= 2 and np.linalg.norm(out[0] - out[-1]) <= tol:
-        out.pop()
-    return np.asarray(out)
-
-
-def _signed_area(pts: np.ndarray) -> float:
-    """Signed area (positive for CCW)."""
-    x = pts[:, 0]
-    y = pts[:, 1]
-    return 0.5 * float(np.sum(x * np.roll(y, -1) - y * np.roll(x, -1)))
-
-
-def _is_convex(a: np.ndarray, b: np.ndarray, c: np.ndarray, eps: float = 1e-12) -> bool:
-    """Check convexity of angle at b for CCW polygon by cross product sign."""
-    ab = b - a
-    bc = c - b
-    cross = ab[0] * bc[1] - ab[1] * bc[0]
-    return cross > eps
-
-
-def _point_in_triangle(
-    p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray, eps: float = 1e-12
-) -> bool:
-    """Barycentric technique to test if point lies inside triangle ABC."""
-    v0 = c - a
-    v1 = b - a
-    v2 = p - a
-
-    dot00 = float(np.dot(v0, v0))
-    dot01 = float(np.dot(v0, v1))
-    dot02 = float(np.dot(v0, v2))
-    dot11 = float(np.dot(v1, v1))
-    dot12 = float(np.dot(v1, v2))
-
-    denom = dot00 * dot11 - dot01 * dot01
-    if abs(denom) < eps:
-        return False
-
-    u = (dot11 * dot02 - dot01 * dot12) / denom
-    v = (dot00 * dot12 - dot01 * dot02) / denom
-
-    return (u >= -eps) and (v >= -eps) and (u + v <= 1.0 + eps)
