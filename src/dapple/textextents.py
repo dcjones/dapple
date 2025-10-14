@@ -1,17 +1,153 @@
-
 """
 Text extent computation using HarfBuzz for text shaping and FreeType for glyph metrics.
 
 This module provides a Font class that can accurately compute bounding boxes for
 text strings by combining HarfBuzz's advanced text shaping capabilities with
 FreeType's precise glyph metrics.
+
+Font discovery uses a fallback chain to work across platforms:
+1. fontconfig (Linux/Unix, if available)
+2. fc-list command (Linux/Unix fallback)
+3. matplotlib FontManager (cross-platform, if available)
+4. Manual directory scanning (last resort)
 """
 
-from matplotlib import font_manager
-from .coordinates import mm, AbsLengths
-from typing import Tuple
+import sys
+import subprocess
+from pathlib import Path
+from typing import Optional, Tuple
 import uharfbuzz as hb
 import freetype
+from .coordinates import mm, AbsLengths
+
+# Try to import fontconfig (Linux/Unix)
+try:
+    import fontconfig
+
+    HAS_FONTCONFIG = True
+except ImportError:
+    HAS_FONTCONFIG = False
+
+# Try to import matplotlib as fallback
+try:
+    from matplotlib import font_manager
+
+    HAS_MATPLOTLIB = True
+except ImportError:
+    HAS_MATPLOTLIB = False
+
+
+def find_font(family: str) -> Optional[str]:
+    """
+    Find font file path using the best available method for the platform.
+
+    Tries methods in order:
+    1. fontconfig (Linux/Unix)
+    2. fc-list command (Linux/Unix fallback)
+    3. matplotlib FontManager (cross-platform)
+    4. Manual directory scanning (last resort)
+
+    Args:
+        family: Font family name
+
+    Returns:
+        Path to font file, or None if not found
+    """
+    # Try fontconfig first (best on Linux)
+    if HAS_FONTCONFIG:
+        try:
+            fonts = fontconfig.query(family=family)
+            if fonts and len(fonts) > 0:
+                # fontconfig.query() returns a list of file paths (strings)
+                return fonts[0]
+        except Exception:
+            pass
+
+    # Try fc-list command (Linux/Unix)
+    try:
+        result = subprocess.run(
+            ["fc-list", f":family={family}", "file"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+        for line in result.stdout.strip().split("\n"):
+            if line:
+                path = line.split(":")[0].strip()
+                if Path(path).exists():
+                    return path
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
+        pass
+
+    # Try matplotlib (cross-platform)
+    if HAS_MATPLOTLIB:
+        try:
+            props = font_manager.FontProperties(family=family)
+            path = font_manager.findfont(props)
+            if path and Path(path).exists():
+                return path
+        except Exception:
+            pass
+
+    # Last resort: scan common directories
+    return _scan_font_directories(family)
+
+
+def _scan_font_directories(family: str) -> Optional[str]:
+    """
+    Scan platform-specific font directories for a font file.
+
+    Args:
+        family: Font family name
+
+    Returns:
+        Path to font file, or None if not found
+    """
+    font_dirs = []
+
+    if sys.platform == "linux":
+        font_dirs = [
+            Path.home() / ".fonts",
+            Path.home() / ".local/share/fonts",
+            Path("/usr/share/fonts"),
+            Path("/usr/local/share/fonts"),
+        ]
+    elif sys.platform == "darwin":  # macOS
+        font_dirs = [
+            Path.home() / "Library/Fonts",
+            Path("/Library/Fonts"),
+            Path("/System/Library/Fonts"),
+        ]
+    elif sys.platform == "win32":  # Windows
+        font_dirs = [
+            Path("C:/Windows/Fonts"),
+            Path.home() / "AppData/Local/Microsoft/Windows/Fonts",
+        ]
+
+    # Normalize family name for matching
+    family_normalized = family.lower().replace(" ", "").replace("-", "")
+
+    # Common font file extensions
+    extensions = {".ttf", ".otf", ".ttc"}
+
+    for font_dir in font_dirs:
+        if not font_dir.exists():
+            continue
+        for ext in extensions:
+            for font_file in font_dir.rglob(f"*{ext}"):
+                filename_normalized = (
+                    font_file.stem.lower().replace(" ", "").replace("-", "")
+                )
+                if family_normalized in filename_normalized:
+                    return str(font_file)
+
+    return None
+
 
 class Font:
     """
@@ -21,14 +157,15 @@ class Font:
     kerning, etc.) with FreeType for precise glyph metrics to compute accurate bounding
     boxes for text strings.
 
+    Font discovery works across platforms using a fallback chain of methods.
+
     Attributes:
-        properties: Matplotlib font properties for font matching
         font_path: Path to the actual font file being used
         font: HarfBuzz font object for text shaping
         ft_face: FreeType face object for glyph metrics
         size_mm: Font size in millimeters
     """
-    properties: font_manager.FontProperties
+
     font_path: str
     font: hb.Font
     ft_face: freetype.Face
@@ -43,8 +180,8 @@ class Font:
             size: Font size as an AbsoluteLengths object in millimeters
 
         Raises:
-            ValueError: If size is not a scalar value
-            RuntimeError: If font file cannot be loaded
+            ValueError: If size is not a scalar value or is non-positive
+            RuntimeError: If font file cannot be found or loaded
         """
         size.assert_scalar()
         self.size_mm = size.values[0]
@@ -52,14 +189,16 @@ class Font:
         if self.size_mm <= 0:
             raise ValueError(f"Font size must be positive, got {self.size_mm}mm")
 
+        self.font_path = find_font(family)
+
+        if not self.font_path:
+            raise RuntimeError(
+                f"Could not find font family '{family}'. "
+                f"Tried fontconfig, fc-list, matplotlib, and directory scanning."
+            )
+
         PTS_PER_MM = 2.83464567
         pt_size = self.size_mm * PTS_PER_MM
-
-        self.properties = font_manager.FontProperties(
-            family=family,
-            size=pt_size
-        )
-        self.font_path = font_manager.findfont(self.properties)
 
         try:
             # Initialize HarfBuzz
@@ -68,14 +207,21 @@ class Font:
             self.font = hb.Font(hb_face)
 
             # Set font size in HarfBuzz (in font units)
-            self.font.scale = (int(pt_size * 64), int(pt_size * 64))  # 26.6 fixed point format
+            self.font.scale = (
+                int(pt_size * 64),
+                int(pt_size * 64),
+            )  # 26.6 fixed point format
 
             # Initialize FreeType
             self.ft_face = freetype.Face(self.font_path)
             # Set character size in points (width, height, horizontal DPI, vertical DPI)
-            self.ft_face.set_char_size(int(pt_size * 64), 0, 72, 72)  # 26.6 fixed point format
+            self.ft_face.set_char_size(
+                int(pt_size * 64), 0, 72, 72
+            )  # 26.6 fixed point format
         except Exception as e:
-            raise RuntimeError(f"Failed to load font '{family}' from '{self.font_path}': {e}")
+            raise RuntimeError(
+                f"Failed to load font '{family}' from '{self.font_path}': {e}"
+            )
 
     def get_extents(self, text: str) -> Tuple[AbsLengths, AbsLengths]:
         """
@@ -116,15 +262,15 @@ class Font:
             glyph_positions = buf.glyph_positions
 
             if not glyph_infos:
-                return AbsLengths(0.0), AbsLengths(0.0)
+                return mm(0.0), mm(0.0)
         except Exception as e:
             raise RuntimeError(f"Failed to shape text '{text}': {e}")
 
         # Get bounding box by examining each glyph
-        min_x = float('inf')
-        max_x = float('-inf')
-        min_y = float('inf')
-        max_y = float('-inf')
+        min_x = float("inf")
+        max_x = float("-inf")
+        min_y = float("inf")
+        max_y = float("-inf")
 
         current_x = 0
         current_y = 0
@@ -170,9 +316,9 @@ class Font:
             raise RuntimeError(f"Failed to compute glyph metrics: {e}")
 
         # Handle case where no glyphs have visible bounds
-        if min_x == float('inf'):
+        if min_x == float("inf"):
             min_x = max_x = 0
-        if min_y == float('inf'):
+        if min_y == float("inf"):
             min_y = max_y = 0
 
         # Convert from font units to millimeters
