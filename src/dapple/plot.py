@@ -43,7 +43,7 @@ from .scales import (
 )
 from .export import svg_to_png, svg_to_pdf, ExportError
 from .scales import Scale
-from .config import Config, ConfigKey
+from .config import Config, ConfigKey, default_config
 from .layout import Position
 
 
@@ -91,7 +91,7 @@ class Plot(Element):
 
         config = self.get("dapple:config")
         if config is None:
-            config = Config()
+            config = default_config()
         assert isinstance(config, Config)
 
         # Set up default scales
@@ -510,7 +510,7 @@ class Plot(Element):
             raise
 
     def _repr_svg_(self) -> str:
-        config = self.get_as("dapple:config", Config, lambda: Config())
+        config = self.get_as("dapple:config", Config, lambda: default_config())
         return self.svg(config.plot_width, config.plot_height)._repr_svg_()
 
 

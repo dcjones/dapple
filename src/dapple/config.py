@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
+from pathlib import Path
+import os
+import tomllib
 from .colors import Colors, color
-from .coordinates import AbsLengths, mm
+from .coordinates import AbsLengths, mm, cm, pt, inch
 from cmap import Colormap
 
 
@@ -24,6 +27,68 @@ class ChooseTicksParams:
     simplicity_weight: float
     coverage_weight: float
     niceness_weight: float
+
+
+def _get_config_paths() -> list[Path]:
+    """Returns list of paths to check for config files, in order of priority."""
+    paths: list[Path] = []
+
+    # 1. Current directory
+    paths.append(Path.cwd() / ".dapplerc.toml")
+
+    # 2. Home directory
+    home = Path.home()
+    paths.append(home / ".dapplerc.toml")
+
+    # 3. XDG config directory
+    xdg_config = Path(os.environ.get("XDG_CONFIG_HOME", str(home / ".config")))
+    paths.append(Path(xdg_config) / "dapple" / "config.toml")
+
+    return paths
+
+
+def _load_config_file() -> dict[str, object] | None:
+    """Load config from file if it exists."""
+    for path in _get_config_paths():
+        if path.exists():
+            try:
+                with open(path, "rb") as f:
+                    return tomllib.load(f)
+            except Exception as e:
+                import warnings
+
+                warnings.warn(f"Failed to load config from {path}: {e}")
+    return None
+
+
+def _parse_config_value(key: str, value: object) -> object:
+    """Convert config file values to proper types."""
+    # Handle length values (strings like "2mm", "0.5cm")
+    if isinstance(value, str):
+        if value.endswith("mm"):
+            return mm(float(value[:-2]))
+        elif value.endswith("cm"):
+            return cm(float(value[:-2]))
+        elif value.endswith("pt"):
+            return pt(float(value[:-2]))
+        elif value.endswith("inch"):
+            return inch(float(value[:-4]))
+
+    # Handle color values (strings like "#333333")
+    if key.endswith("color") or key.endswith("fill") or key.endswith("stroke"):
+        if isinstance(value, str):
+            return color(value)
+
+    # Handle colormap values
+    if key.endswith("cmap"):
+        if isinstance(value, str):
+            return Colormap(value)
+
+    # Handle nested ChooseTicksParams
+    if key == "tick_params" and isinstance(value, dict):
+        return ChooseTicksParams(**value)
+
+    return value
 
 
 @dataclass
@@ -88,6 +153,34 @@ class Config:
     # Rasterization configuration
     rasterize_dpi: float = 150.0
 
+    @staticmethod
+    def load(path: Optional[Path | str] = None) -> "Config":
+        """
+        Load config from a file. If no path is provided, searches standard locations.
+        """
+        if path is not None:
+            # Load from specific file
+            path = Path(path)
+            if not path.exists():
+                # File doesn't exist, return defaults
+                return Config()
+            with open(path, "rb") as f:
+                config_data = tomllib.load(f)
+        else:
+            # Load from standard locations
+            config_data = _load_config_file()
+            if config_data is None:
+                # No config file found, return defaults
+                return Config()
+
+        config = Config()
+        for key, value in config_data.items():
+            if hasattr(config, key):
+                parsed_value = _parse_config_value(key, value)
+                setattr(config, key, parsed_value)
+
+        return config
+
     def get(self, key: ConfigKey) -> Any:
         return getattr(self, key.key)
 
@@ -115,3 +208,18 @@ class Config:
                 else:
                     self.replace_keys(value)
         return obj
+
+
+# Global default config loaded from file
+_default_config: Optional[Config] = None
+
+
+def default_config() -> Config:
+    """
+    Returns the default config, loading from file if not already loaded.
+    This is cached so the file is only read once per session.
+    """
+    global _default_config
+    if _default_config is None:
+        _default_config = Config.load()
+    return _default_config

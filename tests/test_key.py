@@ -23,6 +23,7 @@ def test_key_discrete_color():
     svg_root = pl.svg(inch(4), inch(3))
     svg_str = ""
     from io import StringIO
+
     buf = StringIO()
     svg_root.serialize(buf)
     svg_str = buf.getvalue()
@@ -48,6 +49,7 @@ def test_key_continuous_color():
     svg_root = pl.svg(inch(4), inch(3))
     svg_str = ""
     from io import StringIO
+
     buf = StringIO()
     svg_root.serialize(buf)
     svg_str = buf.getvalue()
@@ -73,6 +75,7 @@ def test_key_no_color():
     svg_root = pl.svg(inch(4), inch(3))
     svg_str = ""
     from io import StringIO
+
     buf = StringIO()
     svg_root.serialize(buf)
     svg_str = buf.getvalue()
@@ -90,15 +93,12 @@ def test_key_apply_scales_discrete():
 
     # Create a mock discrete color scale with proper colormap
     from dapple.config import Config
+
     config = Config()
     scale = ScaleDiscreteColor("color")
     scale.colormap = config.discrete_cmap  # Set the colormap
 
-    scales = {
-        "color": scale,
-        "x": None,
-        "y": None
-    }
+    scales = {"color": scale, "x": None, "y": None}
 
     # Mock the finalization and ticks
     scales["color"]._targets = {"A": ("A", None), "B": ("B", None)}
@@ -118,11 +118,7 @@ def test_key_apply_scales_continuous():
     key_geom = key()
 
     # Create a mock continuous color scale
-    scales = {
-        "color": ScaleContinuousColor("color"),
-        "x": None,
-        "y": None
-    }
+    scales = {"color": ScaleContinuousColor("color"), "x": None, "y": None}
 
     key_geom.apply_scales(scales)
 
@@ -142,11 +138,13 @@ def test_key_abs_bounds_discrete():
 
     # Manually set the config values instead of using replace_keys
     from dapple.config import Config
+
     config = Config()
     key_geom.attrib["font_family"] = config.tick_label_font_family
     key_geom.attrib["font_size"] = config.tick_label_font_size
     key_geom.attrib["square_size"] = config.key_square_size
     key_geom.attrib["spacing"] = config.key_spacing
+    key_geom.attrib["gradient_width"] = config.key_gradient_width
 
     width, height = key_geom.abs_bounds()
 
@@ -164,11 +162,13 @@ def test_key_abs_bounds_continuous():
 
     # Manually set the config values instead of using replace_keys
     from dapple.config import Config
+
     config = Config()
     key_geom.attrib["font_family"] = config.tick_label_font_family
     key_geom.attrib["font_size"] = config.tick_label_font_size
-    key_geom.attrib["square_size"] = config.key_square_size
+    key_geom.attrib["gradient_width"] = config.key_gradient_width
     key_geom.attrib["spacing"] = config.key_spacing
+    key_geom.attrib["square_size"] = config.key_square_size
     key_geom.attrib["gradient_width"] = config.key_gradient_width
 
     # We need to avoid the actual ticks() call in abs_bounds,
@@ -203,6 +203,7 @@ def test_key_positioning():
     key_geom = key()
 
     from dapple.layout import Position
+
     position = key_geom.attrib.get("dapple:position")
 
     assert position == Position.RightCenter
