@@ -247,6 +247,50 @@ class TestRasterizedPolygonsResolve:
         resolved = element.resolve(ctx)
         assert resolved.tag == "image"
 
+    def test_multipolygon_with_colors_per_input(self):
+        # Test that colors can match the number of input geometries (including MultiPolygons)
+        # Create two MultiPolygons
+        poly1 = geom.box(0, 0, 10, 10)
+        poly2 = geom.box(5, 5, 15, 15)
+        multi1 = geom.MultiPolygon([poly1, poly2])
+
+        poly3 = geom.box(20, 0, 30, 10)
+        poly4 = geom.box(25, 5, 35, 15)
+        poly5 = geom.box(30, 10, 40, 20)
+        multi2 = geom.MultiPolygon([poly3, poly4, poly5])
+
+        # Pass 2 colors (one per MultiPolygon input), not 5 (one per flattened polygon)
+        colors_per_input = ["#ff0000", "#0000ff"]
+
+        element = rasterized_polygons(
+            [multi1, multi2], color=color(colors_per_input), dpi=150.0
+        )
+
+        # Verify element was created with correct tracking
+        assert element.tag == "dapple:rasterized_polygons"
+        assert "poly_to_input_idx" in element.attrib
+        poly_to_input_idx = element.attrib["poly_to_input_idx"]
+
+        # Should have 5 polygons: 2 from multi1, 3 from multi2
+        assert len(poly_to_input_idx) == 5
+        assert poly_to_input_idx[0] == 0  # First polygon from multi1
+        assert poly_to_input_idx[1] == 0  # Second polygon from multi1
+        assert poly_to_input_idx[2] == 1  # First polygon from multi2
+        assert poly_to_input_idx[3] == 1  # Second polygon from multi2
+        assert poly_to_input_idx[4] == 1  # Third polygon from multi2
+
+        # Verify it resolves correctly
+        ctx = self._create_test_context_from_geoms([multi1, multi2])
+        element.rewrite_attributes_inplace(
+            lambda _key, obj: obj.accept_scale(ctx.scales)
+            if obj.unit in ("x", "y")
+            else obj,
+            UnscaledValues,
+        )
+
+        resolved = element.resolve(ctx)
+        assert resolved.tag == "image"
+
     def test_color_length_mismatch_raises_on_resolve(self):
         # Pass 3 colors for 2 polygons -> should error at resolve time
         rect1 = geom.box(0, 0, 10, 10)

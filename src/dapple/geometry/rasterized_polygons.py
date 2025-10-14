@@ -55,9 +55,12 @@ class RasterizedPolygonsElement(Element):
                 "Install with: pip install mapbox-earcut"
             )
 
-        # Normalize input to a flat list of Polygons
+        # Normalize input to a flat list of Polygons, tracking which input geom each came from
         poly_list: List = []
-        self._flatten_polygons(polygons, poly_list)
+        poly_to_input_idx: List[
+            int
+        ] = []  # Maps each polygon to its input geometry index
+        self._flatten_polygons_with_tracking(polygons, poly_list, poly_to_input_idx)
 
         triangles: List[np.ndarray] = []
         tris_per_poly: List[int] = []
@@ -90,6 +93,7 @@ class RasterizedPolygonsElement(Element):
                 "y": length_params("y", [], CtxLenType.Pos),
                 "triangle_count": 0,
                 "tris_per_poly": tris_per_poly,
+                "poly_to_input_idx": poly_to_input_idx,
                 "color": color_params("color", color),
                 "dpi": dpi,
             }
@@ -106,6 +110,7 @@ class RasterizedPolygonsElement(Element):
             "y": length_params("y", y_vals, CtxLenType.Pos),
             "triangle_count": triangle_count,
             "tris_per_poly": tris_per_poly,
+            "poly_to_input_idx": poly_to_input_idx,
             "color": color_params("color", color),
             "dpi": dpi,
         }
@@ -124,6 +129,7 @@ class RasterizedPolygonsElement(Element):
         color = resolved.attrib["color"]
         dpi = resolved.attrib["dpi"]
         tris_per_poly = resolved.attrib.get("tris_per_poly", None)
+        poly_to_input_idx = resolved.attrib.get("poly_to_input_idx", None)
 
         assert isinstance(x, AbsLengths)
         assert isinstance(y, AbsLengths)
@@ -174,12 +180,15 @@ class RasterizedPolygonsElement(Element):
 
         # Colors per triangle
         if len(color) == triangle_count:
+            # One color per triangle
             per_triangle_colors = color.values.astype(np.float32)
         elif color.isscalar():
+            # Single color for all triangles
             per_triangle_colors = np.repeat(
                 color.values.astype(np.float32), triangle_count, axis=0
             )
         elif isinstance(tris_per_poly, list) and len(color) == len(tris_per_poly):
+            # One color per polygon (after flattening)
             repeats = np.array(tris_per_poly, dtype=int)
             per_triangle_colors = np.repeat(
                 color.values.astype(np.float32), repeats, axis=0
@@ -187,6 +196,26 @@ class RasterizedPolygonsElement(Element):
             if per_triangle_colors.shape[0] != triangle_count:
                 raise ValueError(
                     "Expanded per-polygon colors did not match triangle count."
+                )
+        elif isinstance(poly_to_input_idx, list) and len(poly_to_input_idx) > 0:
+            # Try to match colors to input geometries (handles MultiPolygons)
+            num_input_geoms = max(poly_to_input_idx) + 1
+            if len(color) == num_input_geoms:
+                # Map input colors through polygons to triangles
+                per_triangle_colors = np.zeros((triangle_count, 4), dtype=np.float32)
+                tri_idx = 0
+                for poly_idx, ntri in enumerate(tris_per_poly):
+                    if ntri == 0:
+                        continue
+                    input_idx = poly_to_input_idx[poly_idx]
+                    per_triangle_colors[tri_idx : tri_idx + ntri, :] = color.values[
+                        input_idx, :
+                    ].astype(np.float32)
+                    tri_idx += ntri
+            else:
+                raise ValueError(
+                    f"Color length mismatch: expected scalar, {triangle_count} (per triangle), "
+                    f"{len(tris_per_poly)} (per polygon), or {num_input_geoms} (per input geometry)."
                 )
         else:
             raise ValueError(
@@ -219,6 +248,8 @@ class RasterizedPolygonsElement(Element):
         """
         Flatten input geometry into a list of shapely Polygons.
         Supports Polygon, MultiPolygon, or iterables of those.
+
+        Deprecated: Use _flatten_polygons_with_tracking instead.
         """
         try:
             import shapely.geometry as _geom
@@ -238,6 +269,53 @@ class RasterizedPolygonsElement(Element):
         elif isinstance(geom, Iterable) and not isinstance(geom, (str, bytes)):
             for g in geom:
                 RasterizedPolygonsElement._flatten_polygons(g, out)
+        else:
+            raise TypeError(
+                "polygons must be a shapely Polygon, MultiPolygon, or an iterable of those."
+            )
+
+    @staticmethod
+    def _flatten_polygons_with_tracking(
+        geom, out: List, idx_out: List, input_idx: int = 0
+    ) -> int:
+        """
+        Flatten input geometry into a list of shapely Polygons, tracking input geometry index.
+        Supports Polygon, MultiPolygon, or iterables of those.
+
+        Args:
+            geom: Geometry to flatten
+            out: List to append Polygon objects to
+            idx_out: List to append input geometry indices to (parallel to out)
+            input_idx: Current input geometry index
+
+        Returns:
+            Next input geometry index to use
+        """
+        try:
+            import shapely.geometry as _geom
+        except Exception:
+            # The caller will surface a proper error before getting here normally
+            return input_idx
+
+        if geom is None:
+            return input_idx
+
+        if isinstance(geom, _geom.Polygon):
+            out.append(geom)
+            idx_out.append(input_idx)
+            return input_idx + 1
+        elif isinstance(geom, _geom.MultiPolygon):
+            for g in geom.geoms:
+                if isinstance(g, _geom.Polygon):
+                    out.append(g)
+                    idx_out.append(input_idx)
+            return input_idx + 1
+        elif isinstance(geom, Iterable) and not isinstance(geom, (str, bytes)):
+            for g in geom:
+                input_idx = RasterizedPolygonsElement._flatten_polygons_with_tracking(
+                    g, out, idx_out, input_idx
+                )
+            return input_idx
         else:
             raise TypeError(
                 "polygons must be a shapely Polygon, MultiPolygon, or an iterable of those."
