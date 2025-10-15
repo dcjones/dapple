@@ -245,8 +245,41 @@ class Font:
               with overhanging characters
             - Complex scripts and ligatures are properly handled through HarfBuzz
         """
+        width, height, _ = self.get_extents_with_baseline(text)
+        return width, height
+
+    def get_extents_with_baseline(
+        self, text: str
+    ) -> Tuple[AbsLengths, AbsLengths, AbsLengths]:
+        """
+        Compute the bounding box and baseline offset for the given text.
+
+        This method uses HarfBuzz for advanced text shaping (handling complex scripts,
+        ligatures, kerning, etc.) and FreeType for precise glyph metrics to compute
+        an accurate bounding box.
+
+        Args:
+            text: The text string to measure
+
+        Returns:
+            A tuple of (width, height, baseline) as AbsoluteLengths objects in millimeters.
+            - width: The width of the bounding box
+            - height: The height of the bounding box
+            - baseline: The distance from the top of the bounding box to the text baseline
+
+            The bounding box represents the minimal rectangle that would contain
+            all visible pixels of the rendered text.
+
+        Note:
+            - Empty strings return (0, 0, 0)
+            - The bounding box may be smaller than the advance width for fonts
+              with overhanging characters
+            - Complex scripts and ligatures are properly handled through HarfBuzz
+            - The baseline offset allows proper vertical positioning to avoid
+              descenders hanging below desired boundaries
+        """
         if not text:
-            return mm(0.0), mm(0.0)
+            return mm(0.0), mm(0.0), mm(0.0)
 
         try:
             # Create HarfBuzz buffer
@@ -262,7 +295,7 @@ class Font:
             glyph_positions = buf.glyph_positions
 
             if not glyph_infos:
-                return mm(0.0), mm(0.0)
+                return mm(0.0), mm(0.0), mm(0.0)
         except Exception as e:
             raise RuntimeError(f"Failed to shape text '{text}': {e}")
 
@@ -328,8 +361,10 @@ class Font:
 
         width_pts = (max_x - min_x) / 64.0
         height_pts = (max_y - min_y) / 64.0
+        baseline_pts = (max_y - 0) / 64.0  # Distance from baseline (y=0) to top of bbox
 
         width_mm = width_pts * MM_PER_PT
         height_mm = height_pts * MM_PER_PT
+        baseline_mm = baseline_pts * MM_PER_PT
 
-        return mm(width_mm), mm(height_mm)
+        return mm(width_mm), mm(height_mm), mm(baseline_mm)

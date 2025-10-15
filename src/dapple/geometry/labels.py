@@ -110,7 +110,7 @@ class XLabel(Element):
 
         # Get text extents using Font
         font = Font(font_family, font_size)
-        _text_width, text_height = font.get_extents(text)
+        _text_width, _text_height, text_baseline = font.get_extents_with_baseline(text)
 
         x_scale = ctx.scales["x"]
         _x_labels, x_ticks = x_scale.ticks()
@@ -118,7 +118,7 @@ class XLabel(Element):
 
         # Center the text horizontally using text-anchor
         x = 0.5 * (x_ticks[0] + x_ticks[-1])
-        y = text_height  # Position from top of the space allocated
+        y = text_baseline  # Position from top of the space allocated
 
         text_element = Element(
             "text",
