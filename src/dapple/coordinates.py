@@ -1025,6 +1025,8 @@ class CoordBounds:
             else:
                 continue
 
+            unit_flipped = unit in flipped
+
             # Ideally we'd solve for `translate` and `scale` in the pairs of equations
             #   lower == 0vw
             #   upper = 1vw
@@ -1063,7 +1065,7 @@ class CoordBounds:
                         dict[sympy.Symbol, sympy.Expr],
                         sympy.solve(
                             [lower_part_expr - ref_unit, upper_part_expr]
-                            if unit in flipped
+                            if unit_flipped
                             else [lower_part_expr, upper_part_expr - ref_unit],
                             [scale_sym, translate_sym],
                             rational=False,
@@ -1077,14 +1079,14 @@ class CoordBounds:
                         ref_unit, ref_size * mm_sym
                     )
                     if (
-                        not flipped
+                        not unit_flipped
                         and estimated_scale.is_positive
                         and (
                             min_estimated_scale is None
                             or estimated_scale < min_estimated_scale
                         )
                     ) or (
-                        flipped
+                        unit_flipped
                         and estimated_scale.is_negative
                         and (
                             min_estimated_scale is None
