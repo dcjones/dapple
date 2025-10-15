@@ -1,8 +1,15 @@
 import numpy as np
-from typing import Optional, Union, Tuple
+from typing import Optional, Union, Tuple, override
 from ..elements import Element
 from ..scales import length_params, color_params
-from ..coordinates import CtxLenType, ResolveContext, AbsLengths, mm
+from ..coordinates import (
+    CtxLenType,
+    CoordBounds,
+    ResolveContext,
+    AbsLengths,
+    Lengths,
+    mm,
+)
 from ..config import ConfigKey
 from ..moderngl_utils import render_points_to_texture, calculate_dpi_size
 from ..colors import Colors
@@ -51,6 +58,18 @@ class RasterizedPointsElement(Element):
 
         super().__init__("dapple:rasterized_points", attrib)
 
+    @override
+    def update_bounds(self, bounds: CoordBounds):
+        x = self.get_as("x", Lengths)
+        y = self.get_as("y", Lengths)
+        r = self.get_as("size", Lengths)
+
+        bounds.update(x - r)
+        bounds.update(y - r)
+        bounds.update(x + r)
+        bounds.update(y + r)
+
+    @override
     def resolve(self, ctx: ResolveContext) -> Element:
         """
         Resolve the rasterized points by rendering them to a texture and

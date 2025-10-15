@@ -1000,20 +1000,28 @@ class CoordBounds:
             else:
                 self.bounds[unit] = (ticks_min, ticks_max)
 
-    def solve(self, flipped: set[str]) -> CoordSet:
+    def solve(
+        self, flipped: set[str], width: AbsLengths, height: AbsLengths
+    ) -> CoordSet:
         vw_sym, vh_sym, mm_sym = cast(
-            tuple[sympy.Symbol, sympy.Symbol], sympy.symbols("vw vh mm", positive=True)
+            tuple[sympy.Symbol, sympy.Symbol, sympy.Symbol],
+            sympy.symbols("vw vh mm", positive=True),
         )
         translate_sym, scale_sym = cast(
             tuple[sympy.Symbol, sympy.Symbol], sympy.symbols("translate scale")
         )
 
+        width_scalar = width.scalar_value()
+        height_scalar = height.scalar_value()
+
         coordset: CoordSet = dict()
         for unit, (lower, upper) in self.bounds.items():
             if unit == "x":
                 ref_unit = vw_sym
+                ref_size = width_scalar
             elif unit == "y":
                 ref_unit = vh_sym
+                ref_size = height_scalar
             else:
                 continue
 
@@ -1044,20 +1052,15 @@ class CoordBounds:
                 for part in upper_parts
             ]
 
-            # We try to find the pair of bounds that leads to the smalest
-            # scale and choose that as the active bounds. We can't always
-            # unambiguously evaluate the minimum, so we assume a specific
-            # vw/vh size here to avoid inequalities that can't be evaluated.
-            # This will lead to incorrect results in some cases for very small
-            # plots.
-            ASSUMED_REF_UNIT_SIZE = 75
-
-            scale_expr: None | sympy.Basic = None
-            translate_expr: None | sympy.Basic = None
+            # We try to find the pair of bounds that leads to the smallest
+            # scale and choose that as the active bounds.
+            scale_expr: None | sympy.Expr = None
+            translate_expr: None | sympy.Expr = None
+            min_estimated_scale: None | sympy.Expr = None
             for lower_part_expr in lower_part_exprs:
                 for upper_part_expr in upper_part_exprs:
                     solution = cast(
-                        dict[sympy.Symbol, sympy.Basic],
+                        dict[sympy.Symbol, sympy.Expr],
                         sympy.solve(
                             [lower_part_expr - ref_unit, upper_part_expr]
                             if unit in flipped
@@ -1070,17 +1073,25 @@ class CoordBounds:
                     if scale_sym not in solution or translate_sym not in solution:
                         continue
 
-                    # TODO: This is brutally slow for some reason. Maybe we do substitution instead?
-                    # if scale_expr is None or sympy.ask(
-                    #     abs(solution[scale_sym]) < abs(scale_expr),
-                    #     sympy.Q.ge(ref_unit, ASSUMED_REF_UNIT_SIZE),
-                    # ):
-                    # This alternative is fast and basically works the same.
-                    if scale_expr is None or abs(
-                        solution[scale_sym].subs(
-                            ref_unit, ASSUMED_REF_UNIT_SIZE * mm_sym
+                    estimated_scale = solution[scale_sym].subs(
+                        ref_unit, ref_size * mm_sym
+                    )
+                    if (
+                        not flipped
+                        and estimated_scale.is_positive
+                        and (
+                            min_estimated_scale is None
+                            or estimated_scale < min_estimated_scale
                         )
-                    ) < abs(scale_expr.subs(ref_unit, ASSUMED_REF_UNIT_SIZE * mm_sym)):
+                    ) or (
+                        flipped
+                        and estimated_scale.is_negative
+                        and (
+                            min_estimated_scale is None
+                            or estimated_scale > min_estimated_scale
+                        )
+                    ):
+                        min_estimated_scale = estimated_scale
                         scale_expr = solution[scale_sym]
                         translate_expr = solution[translate_sym]
 

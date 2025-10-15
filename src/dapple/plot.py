@@ -156,13 +156,13 @@ class Plot(Element):
 
         width = mm(ctx.coords["vw"].scale)
         height = mm(ctx.coords["vh"].scale)
-        root = self.layout(els, width, height, config)
+        (root, focus_width, focus_height) = self.layout(els, width, height, config)
 
         # Fit coordinates
         bounds = CoordBounds()
         bounds.update_from_ticks(scaleset)
         root.update_bounds(bounds)
-        coordset = bounds.solve(set(["y"]))
+        coordset = bounds.solve(set(["y"]), focus_width, focus_height)
 
         for child in root:
             grandchild = child[0]
@@ -179,7 +179,7 @@ class Plot(Element):
 
     def layout(
         self, els: list[Element], width: AbsLengths, height: AbsLengths, config: Config
-    ) -> Element:
+    ) -> tuple[Element, AbsLengths, AbsLengths]:
         """
         Arrange child elements in a grid, based on the "dapple:position" attribute.
         """
@@ -271,10 +271,10 @@ class Plot(Element):
         width: AbsLengths,
         height: AbsLengths,
         config: Config,
-    ) -> Element:
+    ) -> tuple[Element, AbsLengths, AbsLengths]:
         nrows, ncols = grid.shape
 
-        def cell_abs_bounds(cell: Element | None):
+        def cell_abs_bounds(cell: Element | None) -> tuple[float, float]:
             if cell is None:
                 return (0.0, 0.0)
             else:
@@ -358,7 +358,7 @@ class Plot(Element):
 
             y += vp_height
 
-        return root
+        return (root, mm(focus_width), mm(focus_height))
 
     def svg(
         self,
