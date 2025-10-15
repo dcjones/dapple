@@ -503,6 +503,7 @@ class ScaleContinuous(Scale):
     def ticks(self) -> Tuple[NDArray[np.str_], Lengths | Colors]:
         if self._ticks is None or self._tick_labels is None:
             self._ticks, self._subticks = self._choose_ticks()
+            print((self.min, self.max, self._ticks))
             self._tick_labels = _label_numbers(self._ticks)
             self._subtick_labels = _label_numbers(self._subticks)
 
@@ -587,7 +588,7 @@ class ScaleContinuous(Scale):
                             step_best = step.tick_step
                             substep_best = step.subtick_step
 
-                        t0 += step_size
+                        t0 += step_size / 2
 
             oom -= 1
 
