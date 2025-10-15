@@ -399,6 +399,12 @@ class XTickLabels(Element):
         else:
             text_attrib["y"] = vh(0)
 
+        # Special case to tweak alignment of negative numbers: we pad the end of these with
+        # invisible space so they get centered in the middle of the digits, which looks slightly nicer.
+        tick_labels = np.asarray(
+            [(l + "&#160;" if l.startswith("-") else l) for l in tick_labels]
+        )
+
         g.append(
             VectorizedElement(
                 "text",
