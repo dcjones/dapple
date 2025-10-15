@@ -142,6 +142,7 @@ def test_key_abs_bounds_discrete():
     config = Config()
     key_geom.attrib["font_family"] = config.tick_label_font_family
     key_geom.attrib["font_size"] = config.tick_label_font_size
+    key_geom.attrib["font_weight"] = config.tick_label_font_weight
     key_geom.attrib["square_size"] = config.key_square_size
     key_geom.attrib["spacing"] = config.key_spacing
     key_geom.attrib["gradient_width"] = config.key_gradient_width
@@ -166,6 +167,7 @@ def test_key_abs_bounds_continuous():
     config = Config()
     key_geom.attrib["font_family"] = config.tick_label_font_family
     key_geom.attrib["font_size"] = config.tick_label_font_size
+    key_geom.attrib["font_weight"] = config.tick_label_font_weight
     key_geom.attrib["gradient_width"] = config.key_gradient_width
     key_geom.attrib["spacing"] = config.key_spacing
     key_geom.attrib["square_size"] = config.key_square_size

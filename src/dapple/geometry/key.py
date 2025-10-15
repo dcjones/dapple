@@ -34,6 +34,7 @@ class Key(Element):
         self,
         font_family=ConfigKey("tick_label_font_family"),
         font_size=ConfigKey("tick_label_font_size"),
+        font_weight=ConfigKey("tick_label_font_weight"),
         fill=ConfigKey("tick_label_fill"),
         square_size=ConfigKey("key_square_size"),
         spacing=ConfigKey("key_spacing"),
@@ -49,6 +50,7 @@ class Key(Element):
             "dapple:padding-bottom": ConfigKey("padding_nil"),
             "font_family": font_family,
             "font_size": font_size,
+            "font_weight": font_weight,
             "fill": fill,
             "square_size": square_size,
             "spacing": spacing,
@@ -82,6 +84,7 @@ class Key(Element):
 
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
+        font_weight = self.attrib["font_weight"]
         fill = self.attrib["fill"]
         square_size = self.attrib["square_size"]
         spacing = self.attrib["spacing"]
@@ -96,6 +99,7 @@ class Key(Element):
             {
                 "font-family": font_family,
                 "font-size": font_size,
+                "font-weight": font_weight,
                 "fill": fill,
             },
         )
@@ -150,6 +154,7 @@ class Key(Element):
 
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
+        font_weight = self.attrib["font_weight"]
         fill = self.attrib["fill"]
         spacing = self.attrib["spacing"]
         gradient_width = self.attrib["gradient_width"]
@@ -180,6 +185,7 @@ class Key(Element):
             {
                 "font-family": font_family,
                 "font-size": font_size,
+                "font-weight": font_weight,
                 "fill": fill,
                 "dapple:coords": {"vh": CoordTransform(vh(-1), vh(1))},
             },

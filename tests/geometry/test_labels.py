@@ -70,33 +70,48 @@ def test_title_function():
 def test_xlabel_custom_parameters():
     """Test that XLabel accepts custom styling parameters."""
     x_label = XLabel(
-        "Custom X Label", font_family="Arial", font_size=mm(4.0), fill="#ff0000"
+        "Custom X Label",
+        font_family="Arial",
+        font_size=mm(4.0),
+        font_weight="bold",
+        fill="#ff0000",
     )
     assert x_label.attrib["text"] == "Custom X Label"
     assert x_label.attrib["font_family"] == "Arial"
     assert x_label.attrib["font_size"] == mm(4.0)
+    assert x_label.attrib["font_weight"] == "bold"
     assert x_label.attrib["fill"] == "#ff0000"
 
 
 def test_ylabel_custom_parameters():
     """Test that YLabel accepts custom styling parameters."""
     y_label = YLabel(
-        "Custom Y Label", font_family="Times", font_size=mm(5.0), fill="#00ff00"
+        "Custom Y Label",
+        font_family="Times",
+        font_size=mm(5.0),
+        font_weight="300",
+        fill="#00ff00",
     )
     assert y_label.attrib["text"] == "Custom Y Label"
     assert y_label.attrib["font_family"] == "Times"
     assert y_label.attrib["font_size"] == mm(5.0)
+    assert y_label.attrib["font_weight"] == "300"
     assert y_label.attrib["fill"] == "#00ff00"
 
 
 def test_title_custom_parameters():
     """Test that Title accepts custom styling parameters."""
     plot_title = Title(
-        "Custom Title", font_family="Helvetica", font_size=mm(6.0), fill="#0000ff"
+        "Custom Title",
+        font_family="Helvetica",
+        font_size=mm(6.0),
+        font_weight="600",
+        fill="#0000ff",
     )
     assert plot_title.attrib["text"] == "Custom Title"
     assert plot_title.attrib["font_family"] == "Helvetica"
     assert plot_title.attrib["font_size"] == mm(6.0)
+    assert plot_title.attrib["font_weight"] == "600"
     assert plot_title.attrib["fill"] == "#0000ff"
 
 
@@ -311,17 +326,23 @@ def test_yticklabels_function():
 
 def test_xticklabels_custom_parameters():
     """Test that XTickLabels accepts custom styling parameters."""
-    x_tick_labels = XTickLabels(font_family="Arial", font_size=mm(3.0), fill="#ff0000")
+    x_tick_labels = XTickLabels(
+        font_family="Arial", font_size=mm(3.0), font_weight="bold", fill="#ff0000"
+    )
     assert x_tick_labels.attrib["font_family"] == "Arial"
     assert x_tick_labels.attrib["font_size"] == mm(3.0)
+    assert x_tick_labels.attrib["font_weight"] == "bold"
     assert x_tick_labels.attrib["fill"] == "#ff0000"
 
 
 def test_yticklabels_custom_parameters():
     """Test that YTickLabels accepts custom styling parameters."""
-    y_tick_labels = YTickLabels(font_family="Times", font_size=mm(2.0), fill="#00ff00")
+    y_tick_labels = YTickLabels(
+        font_family="Times", font_size=mm(2.0), font_weight="500", fill="#00ff00"
+    )
     assert y_tick_labels.attrib["font_family"] == "Times"
     assert y_tick_labels.attrib["font_size"] == mm(2.0)
+    assert y_tick_labels.attrib["font_weight"] == "500"
     assert y_tick_labels.attrib["fill"] == "#00ff00"
 
 

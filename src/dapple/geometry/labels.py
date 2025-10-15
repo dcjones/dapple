@@ -85,6 +85,7 @@ class XLabel(Element):
         text: str,
         font_family=ConfigKey("label_font_family"),
         font_size=ConfigKey("label_font_size"),
+        font_weight=ConfigKey("label_font_weight"),
         fill=ConfigKey("label_fill"),
     ):
         attrib: dict[str, object] = {
@@ -93,6 +94,7 @@ class XLabel(Element):
             "text": text,
             "font_family": font_family,
             "font_size": font_size,
+            "font_weight": font_weight,
             "fill": fill,
         }
         super().__init__("dapple:xlabel", attrib)  # type: ignore
@@ -102,11 +104,13 @@ class XLabel(Element):
         text = self.attrib["text"]
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
+        font_weight = self.attrib["font_weight"]
         fill = self.attrib["fill"]
 
         assert isinstance(text, str)
         assert isinstance(font_family, str)
         assert isinstance(font_size, AbsLengths)
+        assert isinstance(font_weight, str)
 
         # Get text extents using Font
         font = Font(font_family, font_size)
@@ -127,6 +131,7 @@ class XLabel(Element):
                 "y": y,
                 "font-family": font_family,
                 "font-size": font_size,
+                "font-weight": font_weight,
                 "fill": fill,
                 "text-anchor": "middle",  # Center horizontally
             },
@@ -165,6 +170,7 @@ class YLabel(Element):
         text: str,
         font_family=ConfigKey("label_font_family"),
         font_size=ConfigKey("label_font_size"),
+        font_weight=ConfigKey("label_font_weight"),
         fill=ConfigKey("label_fill"),
     ):
         attrib: dict[str, object] = {
@@ -173,6 +179,7 @@ class YLabel(Element):
             "text": text,
             "font_family": font_family,
             "font_size": font_size,
+            "font_weight": font_weight,
             "fill": fill,
         }
         super().__init__("dapple:ylabel", attrib)  # type: ignore
@@ -182,11 +189,13 @@ class YLabel(Element):
         text = self.attrib["text"]
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
+        font_weight = self.attrib["font_weight"]
         fill = self.attrib["fill"]
 
         assert isinstance(text, str)
         assert isinstance(font_family, str)
         assert isinstance(font_size, AbsLengths)
+        assert isinstance(font_weight, str)
 
         # Get text extents using Font
         font = Font(font_family, font_size)
@@ -211,6 +220,7 @@ class YLabel(Element):
                 "y": y,
                 "font-family": font_family,
                 "font-size": font_size,
+                "font-weight": font_weight,
                 "fill": fill,
                 "text-anchor": "middle",
                 "transform": f"rotate(-90, {x_resolved.serialize()}, {y_resolved.serialize()})",
@@ -251,6 +261,7 @@ class Title(Element):
         text: str,
         font_family=ConfigKey("title_font_family"),
         font_size=ConfigKey("title_font_size"),
+        font_weight=ConfigKey("title_font_weight"),
         fill=ConfigKey("title_fill"),
     ):
         attrib: dict[str, object] = {
@@ -259,6 +270,7 @@ class Title(Element):
             "text": text,
             "font_family": font_family,
             "font_size": font_size,
+            "font_weight": font_weight,
             "fill": fill,
         }
         super().__init__("dapple:title", attrib)  # type: ignore
@@ -268,11 +280,13 @@ class Title(Element):
         text = self.attrib["text"]
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
+        font_weight = self.attrib["font_weight"]
         fill = self.attrib["fill"]
 
         assert isinstance(text, str)
         assert isinstance(font_family, str)
         assert isinstance(font_size, AbsLengths)
+        assert isinstance(font_weight, str)
 
         # Get text extents using Font
         font = Font(font_family, font_size)
@@ -289,6 +303,7 @@ class Title(Element):
                 "y": y,
                 "font-family": font_family,
                 "font-size": font_size,
+                "font-weight": font_weight,
                 "fill": fill,
                 "text-anchor": "middle",  # Center horizontally
             },
@@ -331,6 +346,7 @@ class XTickLabels(Element):
         self,
         font_family=ConfigKey("tick_label_font_family"),
         font_size=ConfigKey("tick_label_font_size"),
+        font_weight=ConfigKey("tick_label_font_weight"),
         fill=ConfigKey("tick_label_fill"),
         rotate: bool = False,
     ):
@@ -338,6 +354,7 @@ class XTickLabels(Element):
             "dapple:position": Position.BottomLeft,
             "font_family": font_family,
             "font_size": font_size,
+            "font_weight": font_weight,
             "fill": fill,
             "dapple:rotate": rotate,
         }
@@ -370,12 +387,14 @@ class XTickLabels(Element):
 
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
+        font_weight = self.attrib["font_weight"]
         fill = self.attrib["fill"]
         rotate = self.attrib["dapple:rotate"]
 
         g_attrib = {
             "font-family": font_family,
             "font-size": font_size,
+            "font-weight": font_weight,
             "fill": fill,
         }
 
@@ -517,6 +536,7 @@ class YTickLabels(Element):
         self,
         font_family=ConfigKey("tick_label_font_family"),
         font_size=ConfigKey("tick_label_font_size"),
+        font_weight=ConfigKey("tick_label_font_weight"),
         fill=ConfigKey("tick_label_fill"),
         rotate: bool = False,
     ):
@@ -524,6 +544,7 @@ class YTickLabels(Element):
             "dapple:position": Position.LeftTop,
             "font_family": font_family,
             "font_size": font_size,
+            "font_weight": font_weight,
             "fill": fill,
             "dapple:rotate": rotate,
         }
@@ -554,12 +575,14 @@ class YTickLabels(Element):
 
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
+        font_weight = self.attrib["font_weight"]
         fill = self.attrib["fill"]
         rotate = self.attrib["dapple:rotate"]
 
         g_attrib = {
             "font-family": font_family,
             "font-size": font_size,
+            "font-weight": font_weight,
             "fill": fill,
         }
 

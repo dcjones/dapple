@@ -133,16 +133,19 @@ class Config:
     # Label configuration
     label_font_family: str = "DejaVu Sans"
     label_font_size: AbsLengths = field(default_factory=lambda: mm(3.5))
+    label_font_weight: str = "normal"
     label_fill: Colors = field(default_factory=lambda: color("#333333"))
 
     # Title configuration
     title_font_family: str = "DejaVu Sans"
     title_font_size: AbsLengths = field(default_factory=lambda: mm(4.8))
+    title_font_weight: str = "normal"
     title_fill: Colors = field(default_factory=lambda: color("#333333"))
 
     # Tick label configuration
     tick_label_font_family: str = "DejaVu Sans"
     tick_label_font_size: AbsLengths = field(default_factory=lambda: mm(2.5))
+    tick_label_font_weight: str = "normal"
     tick_label_fill: Colors = field(default_factory=lambda: color("#333333"))
 
     # Key configuration
