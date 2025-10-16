@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .colors import Colors
+from .colors import Colors, color, distinguishable_colors
 from .coordinates import Lengths, CtxLengths, CtxLenType
 from .config import ConfigKey, ChooseTicksParams
 from abc import ABC, abstractmethod
@@ -321,6 +321,8 @@ def ydiscrete(*args, **kwargs) -> ScaleDiscreteLength:
 
 
 class ScaleDiscreteColor(ScaleDiscrete):
+    colormap: ColormapLike | ConfigKey | Callable[[int], Colormap]
+
     def __init__(
         self,
         unit: str,
@@ -364,18 +366,26 @@ class ScaleDiscreteColor(ScaleDiscrete):
                 assert target >= 0
                 self.targets[i] = target
 
-        assert isinstance(self.colormap, Colormap)
+        if isinstance(self.colormap, Colormap):
+            colormap = self.colormap
+        elif isinstance(self.colormap, Callable):
+            ntargets = int(np.ceil(self.targets.max() + 1))
+            colormap = self.colormap(ntargets)
+        else:
+            colormap = Colormap(self.colormap)
+
+        assert isinstance(colormap, Colormap)
 
         # spacing depends on whether the colormap is cyclic or not
-        c0 = np.asarray(self.colormap(0.0).rgba)
-        c1 = np.asarray(self.colormap(1.0).rgba)
+        c0 = np.asarray(colormap(0.0).rgba)
+        c1 = np.asarray(colormap(1.0).rgba)
         iscyclic = np.sqrt(((c0 - c1) ** 2).sum()) < 1e-1
         if iscyclic:
             self.targets /= self.targets.max() + 1
         else:
             self.targets /= self.targets.max()
 
-        self.targets = self.colormap(self.targets)
+        self.targets = colormap(self.targets)
         self.labels = np.array(labels)
 
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:

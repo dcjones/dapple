@@ -16,6 +16,7 @@ dependencies = [
     "sympy>=1.14.0",
     "uharfbuzz>=0.51.2",
     "shapely>=2.0.0",
+    "basic-colormath>=1.0.0",
 ]
 
 [project.optional-dependencies]

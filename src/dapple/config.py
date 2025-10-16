@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from pathlib import Path
 import os
 import tomllib
-from .colors import Colors, color
+from .colors import Colors, color, distinguishable_colors
 from .coordinates import AbsLengths, mm, cm, pt, inch
 from cmap import Colormap
 
@@ -97,7 +97,8 @@ class Config:
     plot_height: AbsLengths = field(default_factory=lambda: mm(75))
     pointsize: AbsLengths = field(default_factory=lambda: mm(0.4))
     pointcolor: Colors = field(default_factory=lambda: color("#333333"))
-    discrete_cmap: Colormap = field(default_factory=lambda: Colormap("colorcet:cet_c6"))
+    # discrete_cmap: Colormap = field(default_factory=lambda: Colormap("colorcet:cet_c6"))
+    discrete_cmap: Colormap | Callable[[int], Colormap] = distinguishable_colors
     continuous_cmap: Colormap = field(
         default_factory=lambda: Colormap("colorcet:cet_l20")
     )
