@@ -9,6 +9,7 @@ from .elements import Element, viewport
 from .geometry import xgrids, ygrids, xticks, yticks, xticklabels, yticklabels, key
 from .coordinates import (
     CoordBounds,
+    CoordTransform,
     Serializable,
     AbsCoordSet,
     AbsCoordTransform,
@@ -48,6 +49,9 @@ from .layout import Position
 
 
 class Plot(Element):
+    aspect_ratio: None | float = None
+    flipped_axes: set[str]
+
     def __init__(
         self,
         defaults: Collection[Callable[[], Element]] = (
@@ -58,9 +62,14 @@ class Plot(Element):
             xticklabels,
             yticklabels,
         ),
+        aspect_ratio: None | float = None,
     ):
-        super().__init__("dapple:plot")
+        self.aspect_ratio = aspect_ratio
 
+        # TODO: expose options to set this
+        self.flipped_axes = set(["y"])
+
+        super().__init__("dapple:plot")
         for default in defaults:
             default_el = default()
             assert isinstance(default_el, Element)
@@ -156,17 +165,33 @@ class Plot(Element):
 
         width = mm(ctx.coords["vw"].scale)
         height = mm(ctx.coords["vh"].scale)
-        (root, focus_width, focus_height) = self.layout(els, width, height, config)
+
+        (root, fw_transform, fh_transform) = self.layout(els, width, height, config)
+        ctx.coords["fw"] = fw_transform
+        ctx.coords["fh"] = fh_transform
 
         # Fit coordinates
         bounds = CoordBounds()
         bounds.update_from_ticks(scaleset)
         root.update_bounds(bounds)
-        coordset = bounds.solve(set(["y"]), focus_width, focus_height)
+        coordset = bounds.solve(self.flipped_axes, fw_transform, fh_transform)
+        root.merge_coords(coordset)
 
-        for child in root:
-            grandchild = child[0]
-            grandchild.merge_coords(coordset)
+        if self.aspect_ratio is not None and "x" in coordset and "y" in coordset:
+            x_transform = coordset["x"]
+            y_transform = coordset["y"]
+
+            assert isinstance(x_transform, AbsCoordTransform)
+            assert isinstance(y_transform, AbsCoordTransform)
+
+            shared_abs_scale = min(abs(x_transform.scale), abs(y_transform.scale))
+
+            x_transform.scale = (
+                -shared_abs_scale if "x" in self.flipped_axes else shared_abs_scale
+            )
+            y_transform.scale = (
+                -shared_abs_scale if "y" in self.flipped_axes else shared_abs_scale
+            )
 
         # Resolve children
         ctx.scales = scaleset
@@ -179,7 +204,7 @@ class Plot(Element):
 
     def layout(
         self, els: list[Element], width: AbsLengths, height: AbsLengths, config: Config
-    ) -> tuple[Element, AbsLengths, AbsLengths]:
+    ) -> tuple[Element, AbsCoordTransform, AbsCoordTransform]:
         """
         Arrange child elements in a grid, based on the "dapple:position" attribute.
         """
@@ -271,7 +296,7 @@ class Plot(Element):
         width: AbsLengths,
         height: AbsLengths,
         config: Config,
-    ) -> tuple[Element, AbsLengths, AbsLengths]:
+    ) -> tuple[Element, AbsCoordTransform, AbsCoordTransform]:
         nrows, ncols = grid.shape
 
         def cell_abs_bounds(cell: Element | None) -> tuple[float, float]:
@@ -325,6 +350,9 @@ class Plot(Element):
         focus_height = total_height - row_heights.sum() + row_heights[i_focus]
         focus_width = total_width - col_widths.sum() + col_widths[j_focus]
 
+        focus_x: float | None = None
+        focus_y: float | None = None
+
         root = Element("g")
         y = 0.0
         for i, (row_height, row_pad_t, row_pad_b) in enumerate(
@@ -332,6 +360,7 @@ class Plot(Element):
         ):
             if i == i_focus:
                 vp_height = focus_height
+                focus_y = y + row_pad_t
             else:
                 vp_height = row_heights[i]
 
@@ -341,6 +370,7 @@ class Plot(Element):
             ):
                 if j == j_focus:
                     vp_width = focus_width
+                    focus_x = x + col_pad_l
                 else:
                     vp_width = col_widths[j]
 
@@ -358,7 +388,12 @@ class Plot(Element):
 
             y += vp_height
 
-        return (root, mm(focus_width), mm(focus_height))
+        assert focus_x is not None and focus_y is not None
+
+        fw_transform = AbsCoordTransform(focus_width, focus_x)
+        fh_transform = AbsCoordTransform(focus_height, focus_y)
+
+        return (root, fw_transform, fh_transform)
 
     def svg(
         self,
@@ -518,7 +553,7 @@ def plot(*args, **kwargs) -> Plot:
     """
     Plot constructor interface.
     """
-    pl = Plot()
+    pl = Plot(**kwargs)
 
     for arg in args:
         if isinstance(arg, Element):
@@ -534,9 +569,5 @@ def plot(*args, **kwargs) -> Plot:
             pl.set("dapple:config", arg)
         else:
             raise TypeError(f"Unsupported type for plot argument: {type(arg)}")
-
-    for k, v in kwargs.items():
-        # TODO: not sure what keyword args this actually supports...
-        pass
 
     return pl

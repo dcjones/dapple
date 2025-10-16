@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 from typing import Any, TypeAlias, Tuple, Optional, TYPE_CHECKING, override, cast
 import numpy as np
 import sympy
+import sys
 
 if TYPE_CHECKING:
     from .occupancy import Occupancy
@@ -528,6 +529,22 @@ def vhv(value) -> CtxLengths:
     return ctxlengths(value, "vh", CtxLenType.Vec)
 
 
+def fw(value) -> CtxLengths:
+    return ctxlengths(value, "fw", CtxLenType.Pos)
+
+
+def fh(value) -> CtxLengths:
+    return ctxlengths(value, "fh", CtxLenType.Pos)
+
+
+def fwv(value) -> CtxLengths:
+    return ctxlengths(value, "fwv", CtxLenType.Vec)
+
+
+def fhv(value) -> CtxLengths:
+    return ctxlengths(value, "fhv", CtxLenType.Vec)
+
+
 @dataclass
 class LengthsAddOp(Lengths):
     a: Lengths
@@ -1001,27 +1018,22 @@ class CoordBounds:
                 self.bounds[unit] = (ticks_min, ticks_max)
 
     def solve(
-        self, flipped: set[str], width: AbsLengths, height: AbsLengths
+        self,
+        flipped: set[str],
+        fw_transform: AbsCoordTransform,
+        fh_transform: AbsCoordTransform,
     ) -> CoordSet:
-        vw_sym, vh_sym, mm_sym = cast(
-            tuple[sympy.Symbol, sympy.Symbol, sympy.Symbol],
-            sympy.symbols("vw vh mm", positive=True),
-        )
+        mm_sym = sympy.Symbol("mm", positive=True)
         translate_sym, scale_sym = cast(
             tuple[sympy.Symbol, sympy.Symbol], sympy.symbols("translate scale")
         )
 
-        width_scalar = width.scalar_value()
-        height_scalar = height.scalar_value()
-
         coordset: CoordSet = dict()
         for unit, (lower, upper) in self.bounds.items():
             if unit == "x":
-                ref_unit = vw_sym
-                ref_size = width_scalar
+                ref_transform = fw_transform
             elif unit == "y":
-                ref_unit = vh_sym
-                ref_size = height_scalar
+                ref_transform = fh_transform
             else:
                 continue
 
@@ -1036,9 +1048,6 @@ class CoordBounds:
             # and upper bounds then take the minimum translsation and scale.
             lower_parts = lower.min_parts()
             upper_parts = upper.max_parts()
-
-            # TODO: We might try converting the whole thing to sympy,
-            # simplifying, then splitting into parts.
 
             lower_part_exprs = [
                 self._rewrite_sympy_expression(
@@ -1058,15 +1067,20 @@ class CoordBounds:
             # scale and choose that as the active bounds.
             scale_expr: None | sympy.Expr = None
             translate_expr: None | sympy.Expr = None
-            min_estimated_scale: None | sympy.Expr = None
             for lower_part_expr in lower_part_exprs:
                 for upper_part_expr in upper_part_exprs:
                     solution = cast(
                         dict[sympy.Symbol, sympy.Expr],
                         sympy.solve(
-                            [lower_part_expr - ref_unit, upper_part_expr]
+                            [
+                                lower_part_expr - ref_transform.scale * mm_sym,
+                                upper_part_expr,
+                            ]
                             if unit_flipped
-                            else [lower_part_expr, upper_part_expr - ref_unit],
+                            else [
+                                lower_part_expr,
+                                upper_part_expr - ref_transform.scale * mm_sym,
+                            ],
                             [scale_sym, translate_sym],
                             rational=False,
                         ),
@@ -1075,55 +1089,30 @@ class CoordBounds:
                     if scale_sym not in solution or translate_sym not in solution:
                         continue
 
-                    estimated_scale = solution[scale_sym].subs(
-                        ref_unit, ref_size * mm_sym
-                    )
                     if (
                         not unit_flipped
-                        and estimated_scale.is_positive
-                        and (
-                            min_estimated_scale is None
-                            or estimated_scale < min_estimated_scale
-                        )
+                        and solution[scale_sym].is_positive
+                        and (scale_expr is None or solution[scale_sym] < scale_expr)
                     ) or (
                         unit_flipped
-                        and estimated_scale.is_negative
-                        and (
-                            min_estimated_scale is None
-                            or estimated_scale > min_estimated_scale
-                        )
+                        and solution[scale_sym].is_negative
+                        and (scale_expr is None or solution[scale_sym] > scale_expr)
                     ):
-                        min_estimated_scale = estimated_scale
                         scale_expr = solution[scale_sym]
                         translate_expr = solution[translate_sym]
 
             assert isinstance(scale_expr, sympy.Basic)
             assert isinstance(translate_expr, sympy.Basic)
 
-            coordset[unit] = CoordTransform(
-                sympy_to_length(scale_expr),
-                sympy_to_length(translate_expr),
+            scale_len = sympy_to_length(scale_expr)
+            translate_len = sympy_to_length(translate_expr)
+
+            assert isinstance(scale_len, AbsLengths)
+            assert isinstance(translate_len, AbsLengths)
+
+            coordset[unit] = AbsCoordTransform(
+                scale_len.scalar_value(), translate_len.scalar_value()
             )
-
-            # This is the simpler approach that I wished worked more consistently.
-            # lower_expr = self._rewrite_sympy_expression(
-            #     scale_sym, translate_sym, lower.to_sympy(), unit
-            # )
-            # upper_expr = self._rewrite_sympy_expression(
-            #     scale_sym, translate_sym, upper.to_sympy(), unit
-            # )
-
-            # solution = sympy.solve(
-            #     [lower_expr - ref_unit, upper_expr]
-            #     if unit in flipped
-            #     else [lower_expr, upper_expr - ref_unit],
-            #     [scale_sym, translate_sym],
-            # )
-
-            # coordset[unit] = CoordTransform(
-            #     sympy_to_length(solution[scale_sym]),
-            #     sympy_to_length(solution[translate_sym]),
-            # )
 
         return coordset
 
