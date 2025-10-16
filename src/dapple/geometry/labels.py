@@ -357,6 +357,7 @@ class XTickLabels(Element):
             "font_weight": font_weight,
             "fill": fill,
             "dapple:rotate": rotate,
+            "dapple:padding-top": mm(0.3),
         }
         super().__init__("dapple:xticklabels", attrib)  # type: ignore
         self._tick_labels = None
@@ -385,11 +386,13 @@ class XTickLabels(Element):
         tick_labels, tick_positions = x_scale.ticks()
         assert isinstance(tick_positions, Lengths)
 
-        font_family = self.attrib["font_family"]
-        font_size = self.attrib["font_size"]
+        font_family = self.get_as("font_family", str)
+        font_size = self.get_as("font_size", AbsLengths)
         font_weight = self.attrib["font_weight"]
         fill = self.attrib["fill"]
         rotate = self.attrib["dapple:rotate"]
+
+        font = Font(font_family, font_size)
 
         g_attrib = {
             "font-family": font_family,
@@ -403,7 +406,7 @@ class XTickLabels(Element):
             g_attrib["dominant-baseline"] = "middle"
         else:
             g_attrib["text-anchor"] = "middle"  # Center horizontally
-            g_attrib["dominant-baseline"] = "hanging"
+            g_attrib["dominant-baseline"] = "auto"
 
         g = Element("g", g_attrib)
 
@@ -411,18 +414,24 @@ class XTickLabels(Element):
             "x": tick_positions,
         }
 
-        if rotate:
-            # Create a transform for each label that rotates around its anchor point
-            text_attrib["y"] = vh(0)
-            text_attrib["transform"] = RotateTransforms(-90, tick_positions, vh(0))
-        else:
-            text_attrib["y"] = vh(0)
-
         # Special case to tweak alignment of negative numbers: we pad the end of these with
         # invisible space so they get centered in the middle of the digits, which looks slightly nicer.
         tick_labels = np.asarray(
             [(l + "&#160;" if l.startswith("-") else l) for l in tick_labels]
         )
+
+        min_baseline = mm(np.inf)
+        for tick_label in tick_labels:
+            width_, height_, baseline = font.get_extents_with_baseline(str(tick_label))
+            if baseline.scalar_value() < min_baseline.scalar_value():
+                min_baseline = baseline
+
+        if rotate:
+            # Create a transform for each label that rotates around its anchor point
+            text_attrib["y"] = vh(0)
+            text_attrib["transform"] = RotateTransforms(-90, tick_positions, vh(0))
+        else:
+            text_attrib["y"] = min_baseline
 
         g.append(
             VectorizedElement(
