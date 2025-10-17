@@ -6,7 +6,17 @@ from decimal import Overflow
 from enum import Enum
 from functools import singledispatch
 from numpy.typing import NDArray
-from typing import Any, TypeAlias, Tuple, Optional, TYPE_CHECKING, override, cast
+from typing import (
+    Any,
+    TypeAlias,
+    Tuple,
+    Optional,
+    NamedTuple,
+    TYPE_CHECKING,
+    override,
+    cast,
+)
+from scipy.optimize import linprog
 import numpy as np
 import sympy
 import sys
@@ -66,6 +76,10 @@ class Lengths(Resolvable, ABC):
     @abstractmethod
     def __getitem__(self, idx: int) -> Lengths:
         pass
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
 
     def assert_scalar(self):
         if not self.isscalar():
@@ -985,37 +999,120 @@ def translate(x: Lengths, y: Lengths) -> Transform:
     return Transform(1.0, 0.0, 0.0, 1.0, x, y)
 
 
+class CoordConstraint(NamedTuple):
+    """
+    Store terms across units for one coordinate constraint
+    """
+
+    # Because x and y are not lengths but rather positions, we need
+    # be able to represent the absence of these units, hence allowing None.
+
+    x: float | None = None
+    xv: float = 0
+    y: float | None = None
+    yv: float = 0
+    mm: float = 0
+    # TODO: why may also consider supporting fw and fh terms.
+
+
+ZERO_COORD_CONSTRAINT = CoordConstraint()
+
+
+# TODO: Rename this to CoordConstraints
 class CoordBounds:
     """
-    Used to keep track of upper and lower bounds corresponding to each contextual unit.
+    Keeps track potential coordinate constraints and solve the coordinate transform.
     """
 
-    bounds: dict[str, Tuple[Lengths, Lengths]]
+    constraints: set[CoordConstraint]
 
     def __init__(self):
-        self.bounds = dict()
+        self.constraints = set()
 
-    def update(self, l: Lengths):
-        for unit in l.units():
-            if unit in self.bounds:
-                lower, upper = self.bounds[unit]
-                self.bounds[unit] = (lower.min(l.min()), upper.max(l.max()))
-            else:
-                self.bounds[unit] = (l.min(), l.max())
+    def update(
+        self,
+        l: Lengths,
+        partial_factor: float = 1.0,
+        partial_term: CoordConstraint = ZERO_COORD_CONSTRAINT,
+    ):
+        x = partial_term.x
+        xv = partial_term.xv
+        y = partial_term.y
+        yv = partial_term.yv
+        mm = partial_term.mm
+
+        stack: list[tuple[float, Lengths]] = [(partial_factor, l)]
+        while stack:
+            factor, term = stack.pop()
+
+            match term:
+                case AbsLengths():
+                    if term.isscalar():
+                        mm += factor * term.scalar_value()
+                    else:
+                        partial_subterm = CoordConstraint(x=x, xv=xv, y=y, yv=yv, mm=mm)
+                        self.update(term.unmin(), factor, partial_subterm)
+                        self.update(term.unmax(), factor, partial_subterm)
+
+                case CtxLengths():
+                    if term.isscalar():
+                        if term.unit == "x":
+                            if term.typ == CtxLenType.Pos:
+                                x = (0.0 if x is None else x) + term.scalar_value()
+                            elif term.typ == CtxLenType.Vec:
+                                xv += term.scalar_value()
+                        elif term.unit == "y":
+                            if term.typ == CtxLenType.Pos:
+                                y = (0.0 if y is None else y) + term.scalar_value()
+                            elif term.typ == CtxLenType.Vec:
+                                yv += term.scalar_value()
+                        else:
+                            raise ValueError(
+                                f"Constraint with unsupported unit: {term.unit}"
+                            )
+                    else:
+                        partial_subterm = CoordConstraint(x=x, xv=xv, y=y, yv=yv, mm=mm)
+                        self.update(term.unmin(), factor, partial_subterm)
+                        self.update(term.unmax(), factor, partial_subterm)
+
+                case LengthsAddOp():
+                    stack.append((factor, term.a))
+                    stack.append((factor, term.b))
+
+                case LengthsMulOp():
+                    stack.append((factor * term.a, term.b))
+
+                case LengthsNegOp():
+                    stack.append((-factor, term.a))
+
+                case LengthsUnaryMinOp():
+                    partial_subterm = CoordConstraint(x=x, xv=xv, y=y, yv=yv, mm=mm)
+                    for subterm in term.a:
+                        self.update(subterm, factor, partial_subterm)
+
+                case LengthsUnaryMaxOp():
+                    partial_subterm = CoordConstraint(x=x, xv=xv, y=y, yv=yv, mm=mm)
+                    for subterm in term.a:
+                        self.update(subterm, factor, partial_subterm)
+
+                case _:
+                    raise ValueError(
+                        f"Constraint with unsupported length type: {type(term)}"
+                    )
+
+        if x is not None or y is not None:
+            self.constraints.add(CoordConstraint(x=x, xv=xv, y=y, yv=yv, mm=mm))
 
     def update_from_ticks(self, scales: ScaleSet):
-        for unit, scale in scales.items():
+        for _unit, scale in scales.items():
             _labels, ticks = scale.ticks()
 
             if not isinstance(ticks, Lengths):
                 continue
 
             ticks_min, ticks_max = ticks[0], ticks[-1]
-            if unit in self.bounds:
-                lower, upper = self.bounds[unit]
-                self.bounds[unit] = (lower.min(ticks_min), upper.max(ticks_max))
-            else:
-                self.bounds[unit] = (ticks_min, ticks_max)
+            self.update(ticks_min)
+            self.update(ticks_max)
 
     def solve(
         self,
@@ -1023,125 +1120,245 @@ class CoordBounds:
         fw_transform: AbsCoordTransform,
         fh_transform: AbsCoordTransform,
     ) -> CoordSet:
-        mm_sym = sympy.Symbol("mm", positive=True)
-        translate_sym, scale_sym = cast(
-            tuple[sympy.Symbol, sympy.Symbol], sympy.symbols("translate scale")
-        )
+        # variables are: scale_x, scale_y, translate_x, translate_y
+        idx_scale_x = 0
+        idx_scale_y = 1
+        idx_translate_x = 2
+        idx_translate_y = 3
 
-        coordset: CoordSet = dict()
-        for unit, (lower, upper) in self.bounds.items():
-            if unit == "x":
-                ref_transform = fw_transform
-            elif unit == "y":
-                ref_transform = fh_transform
+        bounds = [(0, None), (0, None), (None, None), (None, None)]
+
+        # objective is set to maximize the scale subject to the constraints
+        c = np.array([-1.0, -1.0, 0.0, 0.0], dtype=np.float32)
+
+        A_ub = np.zeros((2 * len(self.constraints), 4), dtype=np.float32)
+        b_ub = np.zeros(2 * len(self.constraints), dtype=np.float32)
+        for i, constraint in enumerate(self.constraints):
+            print(constraint)
+            j = 2 * i
+
+            # Constraints can either be wrt to width or height, not both.
+            if constraint.x is not None and constraint.y is not None:
+                raise ValueError("Constraint cannot be wrt to both width and height")
+
+            if constraint.x is not None:
+                ub_size = fw_transform.scale
+            elif constraint.y is not None:
+                ub_size = fh_transform.scale
             else:
-                continue
+                raise ValueError("Constraint must be wrt to either width or height")
 
-            unit_flipped = unit in flipped
+            b_ub[j] = 0.0
+            A_ub[j, idx_scale_x] = (
+                0.0 if constraint.x is None else constraint.x
+            ) + constraint.xv
+            A_ub[j, idx_scale_y] = (
+                0.0 if constraint.y is None else constraint.y
+            ) + constraint.yv
+            A_ub[j, idx_translate_x] = 0.0 if constraint.x is None else 1.0
+            A_ub[j, idx_translate_y] = 0.0 if constraint.y is None else 1.0
+            A_ub[j + 1, :] = A_ub[j, :]
 
-            # Ideally we'd solve for `translate` and `scale` in the pairs of equations
-            #   lower == 0vw
-            #   upper = 1vw
-            #
-            # Frequently though we aren't able to solve these due to min and max in the equations.
-            # Here we take a conservative approach and instead solve for every combination of possible lower
-            # and upper bounds then take the minimum translsation and scale.
-            lower_parts = lower.min_parts()
-            upper_parts = upper.max_parts()
+            # non-negativity constraint: 0 <= constraint -> -constraint <= 0
+            A_ub[j, :] = -A_ub[j, :]
+            b_ub[j] = constraint.mm
 
-            lower_part_exprs = [
-                self._rewrite_sympy_expression(
-                    scale_sym, translate_sym, part.to_sympy(), unit
-                )
-                for part in lower_parts
-            ]
+            # upper bound size constraint
+            # TODO: figure out which width to use
+            b_ub[j + 1] = ub_size - constraint.mm
 
-            upper_part_exprs = [
-                self._rewrite_sympy_expression(
-                    scale_sym, translate_sym, part.to_sympy(), unit
-                )
-                for part in upper_parts
-            ]
+        print(A_ub)
+        print(b_ub)
 
-            # We try to find the pair of bounds that leads to the smallest
-            # scale and choose that as the active bounds.
-            scale_expr: None | sympy.Expr = None
-            translate_expr: None | sympy.Expr = None
-            for lower_part_expr in lower_part_exprs:
-                for upper_part_expr in upper_part_exprs:
-                    solution = cast(
-                        dict[sympy.Symbol, sympy.Expr],
-                        sympy.solve(
-                            [
-                                lower_part_expr - ref_transform.scale * mm_sym,
-                                upper_part_expr,
-                            ]
-                            if unit_flipped
-                            else [
-                                lower_part_expr,
-                                upper_part_expr - ref_transform.scale * mm_sym,
-                            ],
-                            [scale_sym, translate_sym],
-                            rational=False,
-                        ),
-                    )
+        # TODO:
+        # Support axis flipping
 
-                    if scale_sym not in solution or translate_sym not in solution:
-                        continue
+        # TODO:
+        # Support fixed aspect ratio with equality constraints between scale_x and scale_y
 
-                    if (
-                        not unit_flipped
-                        and solution[scale_sym].is_positive
-                        and (scale_expr is None or solution[scale_sym] < scale_expr)
-                    ) or (
-                        unit_flipped
-                        and solution[scale_sym].is_negative
-                        and (scale_expr is None or solution[scale_sym] > scale_expr)
-                    ):
-                        scale_expr = solution[scale_sym]
-                        translate_expr = solution[translate_sym]
+        # For each constraint c we have four rows in the matrix
+        #
+        #
+        # c.x * scale_x + translate_x
 
-            assert isinstance(scale_expr, sympy.Basic)
-            assert isinstance(translate_expr, sympy.Basic)
+        # Do we need anything other than these constraints?
 
-            scale_len = sympy_to_length(scale_expr)
-            translate_len = sympy_to_length(translate_expr)
+        solution = linprog(c=c, bounds=bounds, A_ub=A_ub, b_ub=b_ub)
 
-            assert isinstance(scale_len, AbsLengths)
-            assert isinstance(translate_len, AbsLengths)
+        print(solution)
+        print(solution.x)
 
-            coordset[unit] = AbsCoordTransform(
-                scale_len.scalar_value(), translate_len.scalar_value()
-            )
+        coordset = {
+            "x": AbsCoordTransform(
+                solution.x[idx_scale_x],
+                solution.x[idx_translate_x],
+            ),
+            "y": AbsCoordTransform(
+                solution.x[idx_scale_y],
+                solution.x[idx_translate_y],
+            ),
+        }
 
         return coordset
 
-    def _rewrite_sympy_expression(
-        self,
-        scale_sym: sympy.Symbol,
-        translate_sym: sympy.Symbol,
-        expr: sympy.Expr,
-        unit: str,
-    ):
-        """
-        Substitute `a*unit` with `a*scale + translate` in preparation for
-        solving the coordinate transform.
-        """
 
-        unit_sym = sympy.Function(unit)
-        c = sympy.Wild(
-            "c",
-            properties=[lambda k: k.is_number],
-        )
+# class CoordBounds:
+#     """
+#     Used to keep track of upper and lower bounds corresponding to each contextual unit.
+#     """
 
-        expr_rewrite = expr.replace(
-            unit_sym(c), lambda c: c * scale_sym + translate_sym
-        )
+#     bounds: dict[str, Tuple[Lengths, Lengths]]
 
-        unit_vec_sym = sympy.Function(unit + "_v")
-        expr_rewrite = expr_rewrite.replace(unit_vec_sym(c), lambda c: c * scale_sym)
+#     def __init__(self):
+#         self.bounds = dict()
 
-        return expr_rewrite
+#     def update(self, l: Lengths):
+#         for unit in l.units():
+#             if unit in self.bounds:
+#                 lower, upper = self.bounds[unit]
+#                 self.bounds[unit] = (lower.min(l.min()), upper.max(l.max()))
+#             else:
+#                 self.bounds[unit] = (l.min(), l.max())
+
+#     def update_from_ticks(self, scales: ScaleSet):
+#         for unit, scale in scales.items():
+#             _labels, ticks = scale.ticks()
+
+#             if not isinstance(ticks, Lengths):
+#                 continue
+
+#             ticks_min, ticks_max = ticks[0], ticks[-1]
+#             if unit in self.bounds:
+#                 lower, upper = self.bounds[unit]
+#                 self.bounds[unit] = (lower.min(ticks_min), upper.max(ticks_max))
+#             else:
+#                 self.bounds[unit] = (ticks_min, ticks_max)
+
+#     def solve(
+#         self,
+#         flipped: set[str],
+#         fw_transform: AbsCoordTransform,
+#         fh_transform: AbsCoordTransform,
+#     ) -> CoordSet:
+#         mm_sym = sympy.Symbol("mm", positive=True)
+#         translate_sym, scale_sym = cast(
+#             tuple[sympy.Symbol, sympy.Symbol], sympy.symbols("translate scale")
+#         )
+
+#         coordset: CoordSet = dict()
+#         for unit, (lower, upper) in self.bounds.items():
+#             if unit == "x":
+#                 ref_transform = fw_transform
+#             elif unit == "y":
+#                 ref_transform = fh_transform
+#             else:
+#                 continue
+
+#             unit_flipped = unit in flipped
+
+#             # Ideally we'd solve for `translate` and `scale` in the pairs of equations
+#             #   lower == 0vw
+#             #   upper = 1vw
+#             #
+#             # Frequently though we aren't able to solve these due to min and max in the equations.
+#             # Here we take a conservative approach and instead solve for every combination of possible lower
+#             # and upper bounds then take the minimum translsation and scale.
+#             lower_parts = lower.min_parts()
+#             upper_parts = upper.max_parts()
+
+#             lower_part_exprs = [
+#                 self._rewrite_sympy_expression(
+#                     scale_sym, translate_sym, part.to_sympy(), unit
+#                 )
+#                 for part in lower_parts
+#             ]
+
+#             upper_part_exprs = [
+#                 self._rewrite_sympy_expression(
+#                     scale_sym, translate_sym, part.to_sympy(), unit
+#                 )
+#                 for part in upper_parts
+#             ]
+
+#             # We try to find the pair of bounds that leads to the smallest
+#             # scale and choose that as the active bounds.
+#             scale_expr: None | sympy.Expr = None
+#             translate_expr: None | sympy.Expr = None
+#             for lower_part_expr in lower_part_exprs:
+#                 for upper_part_expr in upper_part_exprs:
+#                     solution = cast(
+#                         dict[sympy.Symbol, sympy.Expr],
+#                         sympy.solve(
+#                             [
+#                                 lower_part_expr - ref_transform.scale * mm_sym,
+#                                 upper_part_expr,
+#                             ]
+#                             if unit_flipped
+#                             else [
+#                                 lower_part_expr,
+#                                 upper_part_expr - ref_transform.scale * mm_sym,
+#                             ],
+#                             [scale_sym, translate_sym],
+#                             rational=False,
+#                         ),
+#                     )
+
+#                     if scale_sym not in solution or translate_sym not in solution:
+#                         continue
+
+#                     if (
+#                         not unit_flipped
+#                         and solution[scale_sym].is_positive
+#                         and (scale_expr is None or solution[scale_sym] < scale_expr)
+#                     ) or (
+#                         unit_flipped
+#                         and solution[scale_sym].is_negative
+#                         and (scale_expr is None or solution[scale_sym] > scale_expr)
+#                     ):
+#                         scale_expr = solution[scale_sym]
+#                         translate_expr = solution[translate_sym]
+
+#             assert isinstance(scale_expr, sympy.Basic)
+#             assert isinstance(translate_expr, sympy.Basic)
+
+#             scale_len = sympy_to_length(scale_expr)
+#             translate_len = sympy_to_length(translate_expr)
+
+#             assert isinstance(scale_len, AbsLengths)
+#             assert isinstance(translate_len, AbsLengths)
+
+#             coordset[unit] = AbsCoordTransform(
+#                 scale_len.scalar_value(), translate_len.scalar_value()
+#             )
+
+#         return coordset
+
+#     def _rewrite_sympy_expression(
+#         self,
+#         scale_sym: sympy.Symbol,
+#         translate_sym: sympy.Symbol,
+#         expr: sympy.Expr,
+#         unit: str,
+#     ):
+#         """
+#         Substitute `a*unit` with `a*scale + translate` in preparation for
+#         solving the coordinate transform.
+#         """
+
+#         unit_sym = sympy.Function(unit)
+#         c = sympy.Wild(
+#             "c",
+#             properties=[lambda k: k.is_number],
+#         )
+
+#         expr_rewrite = expr.replace(
+#             unit_sym(c), lambda c: c * scale_sym + translate_sym
+#         )
+
+#         unit_vec_sym = sympy.Function(unit + "_v")
+#         expr_rewrite = expr_rewrite.replace(unit_vec_sym(c), lambda c: c * scale_sym)
+
+#         return expr_rewrite
 
 
 def sympy_to_length(expr: sympy.Basic) -> Lengths:

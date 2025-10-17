@@ -177,21 +177,28 @@ class Plot(Element):
         coordset = bounds.solve(self.flipped_axes, fw_transform, fh_transform)
         root.merge_coords(coordset)
 
-        if self.aspect_ratio is not None and "x" in coordset and "y" in coordset:
-            x_transform = coordset["x"]
-            y_transform = coordset["y"]
+        # if self.aspect_ratio is not None and "x" in coordset and "y" in coordset:
+        #     x_transform = coordset["x"]
+        #     y_transform = coordset["y"]
 
-            assert isinstance(x_transform, AbsCoordTransform)
-            assert isinstance(y_transform, AbsCoordTransform)
+        #     assert isinstance(x_transform, AbsCoordTransform)
+        #     assert isinstance(y_transform, AbsCoordTransform)
 
-            shared_abs_scale = min(abs(x_transform.scale), abs(y_transform.scale))
+        #     shared_abs_scale = min(abs(x_transform.scale), abs(y_transform.scale))
 
-            x_transform.scale = (
-                -shared_abs_scale if "x" in self.flipped_axes else shared_abs_scale
-            )
-            y_transform.scale = (
-                -shared_abs_scale if "y" in self.flipped_axes else shared_abs_scale
-            )
+        #     print(x_transform)
+        #     print(y_transform)
+        #     print(shared_abs_scale)
+
+        #     x_transform.scale = (
+        #         -shared_abs_scale if "x" in self.flipped_axes else shared_abs_scale
+        #     )
+        #     y_transform.scale = (
+        #         -shared_abs_scale if "y" in self.flipped_axes else shared_abs_scale
+        #     )
+
+        #     print(x_transform)
+        #     print(y_transform)
 
         # Resolve children
         ctx.scales = scaleset
