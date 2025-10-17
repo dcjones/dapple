@@ -50,7 +50,8 @@ from .layout import Position
 
 class Plot(Element):
     aspect_ratio: None | float = None
-    flipped_axes: set[str]
+    flip_x: bool
+    flip_y: bool
 
     def __init__(
         self,
@@ -66,8 +67,9 @@ class Plot(Element):
     ):
         self.aspect_ratio = aspect_ratio
 
-        # TODO: expose options to set this
-        self.flipped_axes = set(["y"])
+        # TODO: expose options to set these
+        self.flip_x = False
+        self.flip_y = True
 
         super().__init__("dapple:plot")
         for default in defaults:
@@ -174,7 +176,9 @@ class Plot(Element):
         bounds = CoordBounds()
         bounds.update_from_ticks(scaleset)
         root.update_bounds(bounds)
-        coordset = bounds.solve(self.flipped_axes, fw_transform, fh_transform)
+        coordset = bounds.solve(
+            self.flip_x, self.flip_y, fw_transform, fh_transform, self.aspect_ratio
+        )
         root.merge_coords(coordset)
 
         # if self.aspect_ratio is not None and "x" in coordset and "y" in coordset:

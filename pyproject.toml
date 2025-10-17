@@ -13,7 +13,6 @@ dependencies = [
     "freetype-py>=2.5.1",
     "moderngl>=5.12.0",
     "pillow>=11.3.0",
-    "sympy>=1.14.0",
     "uharfbuzz>=0.51.2",
     "shapely>=2.0.0",
     "basic-colormath>=1.0.0",

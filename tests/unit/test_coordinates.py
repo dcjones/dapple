@@ -89,25 +89,3 @@ def test_max_simplification():
         -2.0, one_cx.min(one_cy)
     )
     assert (-one_cx).max(-one_cy) == -one_cx.min(one_cy)
-
-
-def test_sympy_conversion():
-    def check_round_trip(expr):
-        assert dplc.sympy_to_length(expr.to_sympy()) == expr
-
-    check_round_trip(dplc.cx(2))
-    check_round_trip(dplc.cx(2) + dplc.cy(2))
-    check_round_trip(3.0 * dplc.cy(2))
-
-    # have to handle sympy potentially swapping the argument order
-    min_op = dplc.LengthsMinOp
-    a = min_op(dplc.cy(2), dplc.cx(1))
-    b = min_op(dplc.cx(1), dplc.cy(2))
-    a_rt = dplc.sympy_to_length(a.to_sympy())
-    assert a_rt == a or a_rt == b
-
-    max_op = dplc.LengthsMinOp
-    a = max_op(dplc.cy(2), dplc.cx(1))
-    b = max_op(dplc.cx(1), dplc.cy(2))
-    a_rt = dplc.sympy_to_length(a.to_sympy())
-    assert a_rt == a or a_rt == b

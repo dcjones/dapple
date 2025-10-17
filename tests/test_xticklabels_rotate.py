@@ -166,4 +166,4 @@ def test_xticklabels_rotate_update_bounds():
 
     # Should have updated bounds based on rotated text (height becomes the extent in x-direction)
     # Just verify the method runs without error - bounds are stored internally
-    assert bounds.bounds is not None
+    assert len(bounds.constraints) > 0
