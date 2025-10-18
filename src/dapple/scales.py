@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from .colors import Colors, color, distinguishable_colors
+from .colors import Colors
 from .coordinates import Lengths, CtxLengths, CtxLenType
 from .config import ConfigKey, ChooseTicksParams
 from abc import ABC, abstractmethod
 from cmap import Colormap, ColormapLike
-from collections import namedtuple
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from numpy.typing import NDArray
-from typing import Any, Mapping, Sequence, Tuple, Callable, Optional, Union, TypeAlias
+from typing import Any, TypeAlias, override, NamedTuple
+from collections.abc import Callable, Mapping, Sequence, Iterable as AbcIterable
 from numbers import Number
 import numpy as np
 import operator
@@ -37,10 +37,10 @@ class UnscaledExpr(ABC):
     def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]):
         pass
 
-    def __add__(self, other):
+    def __add__(self, other: UnscaledExpr | Lengths) -> UnscaledBinaryOp:
         return UnscaledBinaryOp(self, other, operator.add)
 
-    def __sub__(self, other):
+    def __sub__(self, other: UnscaledExpr | Lengths) -> UnscaledBinaryOp:
         return UnscaledBinaryOp(self, other, operator.sub)
 
     def __neg__(self):
@@ -56,7 +56,7 @@ class UnscaledValues(UnscaledExpr):
     """
 
     unit: str
-    values: Iterable
+    values: AbcIterable[Any]
     typ: CtxLenType = CtxLenType.Vec
 
     def __init__(self, unit: str, values: Any, typ: CtxLenType = CtxLenType.Vec):
@@ -66,13 +66,16 @@ class UnscaledValues(UnscaledExpr):
         self.values = values
         self.typ = typ
 
-    def accept_fit(self, scaleset: ScaleSet):
+    @override
+    def accept_fit(self, scaleset: ScaleSet) -> None:
         scaleset[self.unit].fit_values(self)
 
+    @override
     def accept_scale(self, scaleset: ScaleSet) -> Lengths | Colors:
         return scaleset[self.unit].scale_values(self)
 
-    def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]):
+    @override
+    def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]) -> None:
         visitor(self)
 
     def all_numeric(self) -> bool:
@@ -85,14 +88,16 @@ class UnscaledValues(UnscaledExpr):
             return True
 
 
-def length_params(unit: str, values: Any, typ: CtxLenType):
+def length_params(
+    unit: str, values: Any, typ: CtxLenType
+) -> ConfigKey | Lengths | UnscaledValues:
     if isinstance(values, (ConfigKey, Lengths)):
         return values
     else:
         return UnscaledValues(unit, values, typ)
 
 
-def color_params(unit: str, values: Any):
+def color_params(unit: str, values: Any) -> ConfigKey | Colors | UnscaledValues:
     if isinstance(values, (ConfigKey, Colors)):
         return values
     else:
@@ -105,13 +110,15 @@ class UnscaledUnaryOp(UnscaledExpr):
     General purpose unary operations on unscaled value expressions.
     """
 
-    a: Union[UnscaledExpr, Lengths]
-    op: Callable
+    a: UnscaledExpr | Lengths
+    op: Callable[..., Any]
 
-    def accept_fit(self, scaleset: ScaleSet):
+    @override
+    def accept_fit(self, scaleset: ScaleSet) -> None:
         if isinstance(self.a, UnscaledExpr):
             self.a.accept_fit(scaleset)
 
+    @override
     def accept_scale(self, scaleset: ScaleSet) -> Lengths | Colors:
         return self.op(
             self.a.accept_scale(scaleset)
@@ -119,7 +126,8 @@ class UnscaledUnaryOp(UnscaledExpr):
             else self.a
         )
 
-    def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]):
+    @override
+    def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]) -> None:
         if isinstance(self.a, UnscaledExpr):
             self.a.accept_visitor(visitor)
 
@@ -130,16 +138,18 @@ class UnscaledBinaryOp(UnscaledExpr):
     General purpose binary operations on unscaled value expressions.
     """
 
-    a: Union[UnscaledExpr, Lengths]
-    b: Union[UnscaledExpr, Lengths]
-    op: Callable
+    a: UnscaledExpr | Lengths
+    b: UnscaledExpr | Lengths
+    op: Callable[..., Any]
 
-    def accept_fit(self, scaleset: ScaleSet):
+    @override
+    def accept_fit(self, scaleset: ScaleSet) -> None:
         if isinstance(self.a, UnscaledExpr):
             self.a.accept_fit(scaleset)
         if isinstance(self.b, UnscaledExpr):
             self.b.accept_fit(scaleset)
 
+    @override
     def accept_scale(self, scaleset: ScaleSet) -> Lengths | Colors:
         return self.op(
             self.a.accept_scale(scaleset)
@@ -150,7 +160,8 @@ class UnscaledBinaryOp(UnscaledExpr):
             else self.b,
         )
 
-    def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]):
+    @override
+    def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]) -> None:
         if isinstance(self.a, UnscaledExpr):
             self.a.accept_visitor(visitor)
         if isinstance(self.b, UnscaledExpr):
@@ -173,11 +184,11 @@ class Scale(ABC):
         pass
 
     @abstractmethod
-    def fit_values(self, values: UnscaledValues):
+    def fit_values(self, values: UnscaledValues) -> None:
         pass
 
     @abstractmethod
-    def finalize(self):
+    def finalize(self) -> None:
         pass
 
     @abstractmethod
@@ -185,11 +196,11 @@ class Scale(ABC):
         pass
 
     @abstractmethod
-    def ticks(self) -> Tuple[NDArray[np.str_], Lengths | Colors]:
+    def ticks(self) -> tuple[NDArray[np.str_], Lengths | Colors]:
         pass
 
 
-class ScaleDiscrete(Scale):
+class ScaleDiscrete(Scale, ABC):
     """
     Disecrete scale which can map any collection of (hashable) values onto lengths or colors.
     """
@@ -197,22 +208,22 @@ class ScaleDiscrete(Scale):
     _unit: str
     fixed: bool
     labeler: Callable[[Any], str]
-    sort_by: None | Callable[[Any], Any]
+    sort_by: Callable[[Any], Any] | None
     map: dict[Any, int]
-    targets: np.ndarray
-    labels: NDArray
+    targets: NDArray[np.float64]
+    labels: NDArray[np.str_]
 
     # partial target list used while fitting the scale, maps
     # values to label target pairs.
-    _targets: dict[Any, Tuple[str, Any]]
+    _targets: dict[Any, tuple[str, Any]]
 
     def __init__(
         self,
         unit: str,
-        values: Mapping | Sequence | None = None,
+        values: Mapping[Any, Any] | Sequence[Any] | None = None,
         fixed: bool = False,
-        labeler: Callable[[Any], str] = str,
-        sort_by: None | Callable[[Any], Any] = lambda x: x,
+        labeler: Callable[[Any], str] = str,  # type: ignore[assignment]
+        sort_by: Callable[[Any], Any] | None = lambda x: x,
     ):
         self._unit = unit
         self.fixed = fixed
@@ -244,10 +255,12 @@ class ScaleDiscrete(Scale):
             raise TypeError("values must be a Mapping or Sequence")
 
     @property
+    @override
     def unit(self) -> str:
         return self._unit
 
-    def fit_values(self, values: UnscaledValues):
+    @override
+    def fit_values(self, values: UnscaledValues) -> None:
         for value in values.values:
             if value not in self._targets:
                 if self.fixed:
@@ -266,22 +279,23 @@ class ScaleDiscreteLength(ScaleDiscrete):
     def __init__(
         self,
         unit: str,
-        values: Mapping | Sequence | None = None,
+        values: Mapping[Any, Any] | Sequence[Any] | None = None,
         fixed: bool = False,
-        labeler: Callable[[Any], str] = str,
-        sort_by: None | Callable[[Any], Any] = lambda x: x,
+        labeler: Callable[[Any], str] = str,  # type: ignore[assignment]
+        sort_by: Callable[[Any], Any] | None = lambda x: x,
     ):
         super().__init__(unit, values, fixed, labeler, sort_by)
 
-    def finalize(self):
+    @override
+    def finalize(self) -> None:
         if self.sort_by is not None:
             values = sorted(self._targets.keys(), key=self.sort_by)
         else:
             values = self._targets.keys()
 
-        self.targets = np.zeros(len(self._targets), dtype=np.float32)
-        self.map = dict()
-        labels = []
+        self.targets = np.zeros(len(self._targets), dtype=np.float64)
+        self.map: dict[Any, int] = dict()
+        labels: list[str] = []
 
         next_target = max(
             filter(
@@ -301,51 +315,55 @@ class ScaleDiscreteLength(ScaleDiscrete):
             else:
                 self.targets[i] = target
 
-        self.labels = np.array(labels)
+        self.labels = np.array(labels, dtype=np.str_)
 
+    @override
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
         assert values.unit == self.unit
         indices = np.fromiter((self.map[value] for value in values.values), dtype=int)
         return CtxLengths(self.targets[indices], values.unit, values.typ)
 
-    def ticks(self) -> Tuple[NDArray[np.str_], CtxLengths]:
+    @override
+    def ticks(self) -> tuple[NDArray[np.str_], CtxLengths]:
         return self.labels, CtxLengths(self.targets, self.unit, CtxLenType.Pos)
 
 
-def xdiscrete(*args, **kwargs) -> ScaleDiscreteLength:
+def xdiscrete(*args: Any, **kwargs: Any) -> ScaleDiscreteLength:
     return ScaleDiscreteLength("x", *args, **kwargs)
 
 
-def ydiscrete(*args, **kwargs) -> ScaleDiscreteLength:
+def ydiscrete(*args: Any, **kwargs: Any) -> ScaleDiscreteLength:
     return ScaleDiscreteLength("y", *args, **kwargs)
 
 
 class ScaleDiscreteColor(ScaleDiscrete):
-    colormap: ColormapLike | ConfigKey | Callable[[int], Colormap]
+    colormap: Colormap | ConfigKey | Callable[[int], Colormap]
 
     def __init__(
         self,
         unit: str,
         colormap: ColormapLike | ConfigKey = ConfigKey("discrete_cmap"),
-        values: Mapping | Sequence | None = None,
+        values: Mapping[Any, Any] | Sequence[Any] | None = None,
         fixed: bool = False,
-        labeler: Callable[[Any], str] = str,
-        sort_by: None | Callable[[Any], Any] = lambda x: x,
+        labeler: Callable[[Any], str] = str,  # type: ignore[assignment]
+        sort_by: Callable[[Any], Any] | None = lambda x: x,
     ):
-        if not isinstance(colormap, ConfigKey):
-            colormap = Colormap(colormap)
-        self.colormap = colormap
+        if isinstance(colormap, ConfigKey):
+            self.colormap = colormap
+        else:
+            self.colormap = Colormap(colormap)
         super().__init__(unit, values, fixed, labeler, sort_by)
 
-    def finalize(self):
+    @override
+    def finalize(self) -> None:
         if self.sort_by is not None:
             values = sorted(self._targets.keys(), key=self.sort_by)
         else:
             values = self._targets.keys()
 
-        self.targets = np.zeros(len(self._targets), dtype=np.float32)
-        self.map = dict()
-        labels = []
+        self.targets = np.zeros(len(self._targets), dtype=np.float64)
+        self.map: dict[Any, int] = dict()
+        labels: list[str] = []
 
         next_target = max(
             filter(
@@ -368,11 +386,16 @@ class ScaleDiscreteColor(ScaleDiscrete):
 
         if isinstance(self.colormap, Colormap):
             colormap = self.colormap
-        elif isinstance(self.colormap, Callable):
+        elif isinstance(self.colormap, ConfigKey):
+            # This shouldn't happen after finalize, but handle it gracefully
+            raise ValueError(
+                f"ConfigKey {self.colormap} was not resolved before finalize"
+            )
+        elif callable(self.colormap):
             ntargets = int(np.ceil(self.targets.max() + 1))
-            colormap = self.colormap(ntargets)
+            colormap = self.colormap(ntargets)  # type: ignore[misc]
         else:
-            colormap = Colormap(self.colormap)
+            colormap = Colormap(self.colormap)  # type: ignore[arg-type]
 
         assert isinstance(colormap, Colormap)
 
@@ -386,21 +409,27 @@ class ScaleDiscreteColor(ScaleDiscrete):
             self.targets /= self.targets.max()
 
         self.targets = colormap(self.targets)
-        self.labels = np.array(labels)
+        self.labels = np.array(labels, dtype=np.str_)
 
+    @override
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
         indices = np.fromiter((self.map[value] for value in values.values), dtype=int)
         return Colors(self.targets[indices, :])
 
-    def ticks(self) -> Tuple[NDArray[np.str_], Colors]:
+    @override
+    def ticks(self) -> tuple[NDArray[np.str_], Colors]:
         return self.labels, Colors(self.targets)
 
 
-def colordiscrete(*args, **kwargs) -> ScaleDiscreteColor:
+def colordiscrete(*args: Any, **kwargs: Any) -> ScaleDiscreteColor:
     return ScaleDiscreteColor("color", *args, **kwargs)
 
 
-TickStep = namedtuple("TickStep", ["tick_step", "subtick_step", "niceness"])
+class TickStep(NamedTuple):
+    tick_step: float
+    subtick_step: float
+    niceness: float
+
 
 TICK_STEP_OPTIONS = [
     TickStep(1.0, 0.5, 1.0),
@@ -450,22 +479,22 @@ def _label_numbers(xs: np.ndarray) -> NDArray[np.str_]:
 #  - Fixed tick spans
 
 
-class ScaleContinuous(Scale):
+class ScaleContinuous(Scale, ABC):
     _unit: str
-    min: Optional[np.float64]
-    max: Optional[np.float64]
-    tick_coverage: Union[TickCoverage, ConfigKey]
-    choose_ticks_params: Union[ChooseTicksParams, ConfigKey]
-    _ticks: Optional[np.ndarray]
-    _subticks: Optional[np.ndarray]
-    _tick_labels: Optional[np.ndarray]
-    _subtick_labels: Optional[np.ndarray]
+    min: np.float64 | None
+    max: np.float64 | None
+    tick_coverage: TickCoverage | ConfigKey
+    choose_ticks_params: ChooseTicksParams | ConfigKey
+    _ticks: NDArray[np.float64] | None
+    _subticks: NDArray[np.float64] | None
+    _tick_labels: NDArray[np.str_] | None
+    _subtick_labels: NDArray[np.str_] | None
 
     def __init__(
         self,
         unit: str,
-        tick_coverage: Union[TickCoverage, ConfigKey] = ConfigKey("tick_coverage"),
-        choose_tick_params: Union[ChooseTicksParams, ConfigKey] = ConfigKey(
+        tick_coverage: TickCoverage | ConfigKey = ConfigKey("tick_coverage"),  # type: ignore[assignment]
+        choose_tick_params: ChooseTicksParams | ConfigKey = ConfigKey(  # type: ignore[assignment]
             "tick_params"
         ),
     ):
@@ -491,10 +520,12 @@ class ScaleContinuous(Scale):
             )
 
     @property
+    @override
     def unit(self) -> str:
         return self._unit
 
-    def fit_values(self, values: UnscaledValues):
+    @override
+    def fit_values(self, values: UnscaledValues) -> None:
         for value in values.values:
             value = self._cast_value(value)
             if self.min is None:
@@ -506,11 +537,13 @@ class ScaleContinuous(Scale):
             elif value > self.max:
                 self.max = value
 
-    def finalize(self):
+    @override
+    def finalize(self) -> None:
         # TODO: Do I actually need to do anything here?
         pass
 
-    def ticks(self) -> Tuple[NDArray[np.str_], Lengths | Colors]:
+    @override
+    def ticks(self) -> tuple[NDArray[np.str_], Lengths | Colors]:
         if self._ticks is None or self._tick_labels is None:
             self._ticks, self._subticks = self._choose_ticks()
             self._tick_labels = _label_numbers(self._ticks)
@@ -518,7 +551,7 @@ class ScaleContinuous(Scale):
 
         return (self._tick_labels, CtxLengths(self._ticks, self.unit, CtxLenType.Pos))
 
-    def _choose_ticks(self):
+    def _choose_ticks(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """
         Continuous scale tick optimization via a version of Wilkinson's ad-hoc scoring method.
         """
@@ -623,14 +656,14 @@ class ScaleContinuous(Scale):
 
 
 class ScaleContinuousColor(ScaleContinuous):
-    colormap: Union[Colormap, ConfigKey]
+    colormap: Colormap | ConfigKey
 
     def __init__(
         self,
         unit: str,
-        colormap: Union[ColormapLike, ConfigKey] = ConfigKey("continuous_cmap"),
-        tick_coverage: Union[TickCoverage, ConfigKey] = ConfigKey("tick_coverage"),
-        choose_tick_params: Union[ChooseTicksParams, ConfigKey] = ConfigKey(
+        colormap: ColormapLike | ConfigKey = ConfigKey("continuous_cmap"),  # type: ignore[assignment]
+        tick_coverage: TickCoverage | ConfigKey = ConfigKey("tick_coverage"),  # type: ignore[assignment]
+        choose_tick_params: ChooseTicksParams | ConfigKey = ConfigKey(  # type: ignore[assignment]
             "tick_params"
         ),
     ):
@@ -639,11 +672,14 @@ class ScaleContinuousColor(ScaleContinuous):
         self.colormap = colormap
         super().__init__(unit, tick_coverage, choose_tick_params)
 
+    @override
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
         if self.min is None or self.max is None:
             raise ValueError("ScaleContinuousColor requires min and max values")
 
-        assert isinstance(self.colormap, Colormap)
+        assert isinstance(self.colormap, Colormap), (
+            f"Expected Colormap but got {type(self.colormap)}"
+        )
 
         span = self.max - self.min
         scaled_values = self.colormap(
@@ -659,7 +695,7 @@ class ScaleContinuousColor(ScaleContinuous):
         return Colors(scaled_values)
 
 
-def colorcontinuous(*args, **kwargs) -> ScaleContinuousColor:
+def colorcontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousColor:
     return ScaleContinuousColor(*args, **kwargs)
 
 
@@ -667,13 +703,14 @@ class ScaleContinuousLength(ScaleContinuous):
     def __init__(
         self,
         unit: str,
-        tick_coverage: Union[TickCoverage, ConfigKey] = ConfigKey("tick_coverage"),
-        choose_tick_params: Union[ChooseTicksParams, ConfigKey] = ConfigKey(
+        tick_coverage: TickCoverage | ConfigKey = ConfigKey("tick_coverage"),  # type: ignore[assignment]
+        choose_tick_params: ChooseTicksParams | ConfigKey = ConfigKey(  # type: ignore[assignment]
             "tick_params"
         ),
     ):
         super().__init__(unit, tick_coverage, choose_tick_params)
 
+    @override
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
         assert values.unit == self.unit
 
@@ -684,19 +721,19 @@ class ScaleContinuousLength(ScaleContinuous):
         return CtxLengths(scaled_values, values.unit, values.typ)
 
 
-def xcontinuous(*args, **kwargs) -> ScaleContinuousLength:
+def xcontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
     return ScaleContinuousLength("x", *args, **kwargs)
 
 
-def ycontinuous(*args, **kwargs) -> ScaleContinuousLength:
+def ycontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
     return ScaleContinuousLength("y", *args, **kwargs)
 
 
-def sizecontinuous(*args, **kwargs) -> ScaleContinuousLength:
+def sizecontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
     return ScaleContinuousLength("size", *args, **kwargs)
 
 
-_default_scales = {
+_default_scales: dict[str, tuple[Callable[..., Scale] | None, Callable[..., Scale]]] = {
     "x": (xdiscrete, xcontinuous),
     "y": (ydiscrete, ycontinuous),
     "color": (colordiscrete, colorcontinuous),
