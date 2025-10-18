@@ -200,6 +200,48 @@ class Scale(ABC):
         pass
 
 
+def _label_numbers(xs: np.ndarray) -> NDArray[np.str_]:
+    """
+    Format an array of numbers with consistent precision.
+    Determines appropriate precision based on the differences between values.
+    """
+    MAX_PRECISION = 5
+    fmt_str = f"{{:.{MAX_PRECISION}f}}"
+
+    xstrs = [fmt_str.format(x) for x in xs]
+    trim = min([len(xstr) - len(xstr.rstrip("0")) for xstr in xstrs])
+    if trim == MAX_PRECISION:
+        trim += 1
+
+    # TODO: fall back on scientific numbers?
+    # if trim === 0:
+    #     pass
+
+    return np.array([xstr[:-trim] for xstr in xstrs], dtype=str)
+
+
+def default_labeler(values: Sequence[Any]) -> list[str]:
+    """
+    Default labeler function that converts a collection of values to strings.
+
+    For numeric values, formats all numbers with matching precision.
+    For other types, uses str() conversion.
+    """
+    if not values:
+        return []
+
+    # Check if all values are numbers
+    all_numbers = all(isinstance(v, Number) for v in values)
+
+    if all_numbers:
+        # Convert to numpy array and use number labeling
+        arr = np.array([float(v) for v in values], dtype=np.float64)
+        return list(_label_numbers(arr))
+    else:
+        # Fall back to string conversion
+        return [str(v) for v in values]
+
+
 class ScaleDiscrete(Scale, ABC):
     """
     Disecrete scale which can map any collection of (hashable) values onto lengths or colors.
@@ -207,7 +249,7 @@ class ScaleDiscrete(Scale, ABC):
 
     _unit: str
     fixed: bool
-    labeler: Callable[[Any], str]
+    labeler: Callable[[Sequence[Any]], list[str]]
     sort_by: Callable[[Any], Any] | None
     map: dict[Any, int]
     targets: NDArray[np.float64]
@@ -222,7 +264,7 @@ class ScaleDiscrete(Scale, ABC):
         unit: str,
         values: Mapping[Any, Any] | Sequence[Any] | None = None,
         fixed: bool = False,
-        labeler: Callable[[Any], str] = str,  # type: ignore[assignment]
+        labeler: Callable[[Sequence[Any]], list[str]] = default_labeler,
         sort_by: Callable[[Any], Any] | None = lambda x: x,
     ):
         self._unit = unit
@@ -230,10 +272,14 @@ class ScaleDiscrete(Scale, ABC):
         self.labeler = labeler
         self.sort_by = sort_by
         self._targets = dict()
+        self.map = dict()
 
         if values == None:
             pass
         elif isinstance(values, Mapping):
+            # Collect values that need labeling
+            values_to_label = []
+            value_target_pairs = []
             for value, target in values.items():
                 if value in self.map:
                     raise ValueError(f"Duplicate value {value} in {values}")
@@ -241,16 +287,26 @@ class ScaleDiscrete(Scale, ABC):
                 self.map[value] = len(self.map)
                 match target:
                     case (label, target):
-                        self._targets[value] = (target, label)
+                        self._targets[value] = (label, target)
                     case str():
                         self._targets[value] = (target, None)
                     case _:
-                        self._targets[value] = (self.labeler(value), target)
+                        values_to_label.append(value)
+                        value_target_pairs.append((value, target))
+
+            # Label all values at once
+            if values_to_label:
+                labels = self.labeler(values_to_label)
+                for (value, target), label in zip(value_target_pairs, labels):
+                    self._targets[value] = (label, target)
         elif isinstance(values, Sequence):
-            for value in values:
-                if value in self._targets:
-                    raise ValueError(f"Duplicate value {value} in {values}")
-                self._targets[value] = (self.labeler(value), None)
+            # Label all values at once
+            if values:
+                labels = self.labeler(list(values))
+                for value, label in zip(values, labels):
+                    if value in self._targets:
+                        raise ValueError(f"Duplicate value {value} in {values}")
+                    self._targets[value] = (label, None)
         else:
             raise TypeError("values must be a Mapping or Sequence")
 
@@ -261,14 +317,21 @@ class ScaleDiscrete(Scale, ABC):
 
     @override
     def fit_values(self, values: UnscaledValues) -> None:
+        # Collect new values that need labeling
+        new_values = []
         for value in values.values:
             if value not in self._targets:
                 if self.fixed:
                     raise ValueError(
                         f"Fixed scale cannot be updated with new value {value}"
                     )
+                new_values.append(value)
 
-                self._targets[value] = (self.labeler(value), None)
+        # Label all new values at once
+        if new_values:
+            labels = self.labeler(new_values)
+            for value, label in zip(new_values, labels):
+                self._targets[value] = (label, None)
 
 
 class ScaleDiscreteLength(ScaleDiscrete):
@@ -281,7 +344,7 @@ class ScaleDiscreteLength(ScaleDiscrete):
         unit: str,
         values: Mapping[Any, Any] | Sequence[Any] | None = None,
         fixed: bool = False,
-        labeler: Callable[[Any], str] = str,  # type: ignore[assignment]
+        labeler: Callable[[Sequence[Any]], list[str]] = default_labeler,
         sort_by: Callable[[Any], Any] | None = lambda x: x,
     ):
         super().__init__(unit, values, fixed, labeler, sort_by)
@@ -345,7 +408,7 @@ class ScaleDiscreteColor(ScaleDiscrete):
         colormap: ColormapLike | ConfigKey = ConfigKey("discrete_cmap"),
         values: Mapping[Any, Any] | Sequence[Any] | None = None,
         fixed: bool = False,
-        labeler: Callable[[Any], str] = str,  # type: ignore[assignment]
+        labeler: Callable[[Sequence[Any]], list[str]] = default_labeler,
         sort_by: Callable[[Any], Any] | None = lambda x: x,
     ):
         if isinstance(colormap, ConfigKey):
@@ -456,22 +519,6 @@ class TickCoverage(Enum):
             return cls.StrictSuper
         else:
             raise ValueError(f"Invalid tick coverage: {value}")
-
-
-def _label_numbers(xs: np.ndarray) -> NDArray[np.str_]:
-    MAX_PRECISION = 5
-    fmt_str = f"{{:.{MAX_PRECISION}f}}"
-
-    xstrs = [fmt_str.format(x) for x in xs]
-    trim = min([len(xstr) - len(xstr.rstrip("0")) for xstr in xstrs])
-    if trim == MAX_PRECISION:
-        trim += 1
-
-    # TODO: fall back on scientific numbers?
-    # if trim === 0:
-    #     pass
-
-    return np.array([xstr[:-trim] for xstr in xstrs], dtype=str)
 
 
 # TODO:
