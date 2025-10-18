@@ -1008,14 +1008,18 @@ class CoordBounds:
                     if term.isscalar():
                         if term.unit == "x":
                             if term.typ == CtxLenType.Pos:
-                                x = (0.0 if x is None else x) + term.scalar_value()
+                                x = (
+                                    0.0 if x is None else x
+                                ) + factor * term.scalar_value()
                             elif term.typ == CtxLenType.Vec:
-                                xv += term.scalar_value()
+                                xv += factor * term.scalar_value()
                         elif term.unit == "y":
                             if term.typ == CtxLenType.Pos:
-                                y = (0.0 if y is None else y) + term.scalar_value()
+                                y = (
+                                    0.0 if y is None else y
+                                ) + factor * term.scalar_value()
                             elif term.typ == CtxLenType.Vec:
-                                yv += term.scalar_value()
+                                yv += factor * term.scalar_value()
                         else:
                             additional_units = True
                     else:
