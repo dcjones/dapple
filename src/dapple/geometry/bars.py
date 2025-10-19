@@ -32,22 +32,28 @@ class Bar(Element):
     @override
     def update_bounds(self, bounds: CoordBounds):
         """
-        Update bounds with just x and y positions.
+        Update bounds to include rectangle extents.
 
-        Note: We don't include x+width and y+height because mixing position (Pos)
-        and vector (Vec) CtxLengths in arithmetic creates expressions that the
-        coordinate solver cannot handle. The bars will still render correctly,
-        but the coordinate system may not be optimally fitted.
+        If a 'dapple:nudge' absolute length is present, expand bounds by that
+        amount on all sides so neighboring rects can slightly overlap (avoids
+        hairline gaps).
         """
         x = self.get_as("x", Lengths)
         y = self.get_as("y", Lengths)
         width = self.get_as("width", Lengths)
         height = self.get_as("height", Lengths)
 
-        bounds.update(x)
-        bounds.update(y)
-        bounds.update(x + width)
-        bounds.update(y + height)
+        nudge = self.attrib.get("dapple:nudge")
+        if nudge is not None:
+            bounds.update(x - nudge)
+            bounds.update(y - nudge)
+            bounds.update(x + width + nudge)
+            bounds.update(y + height + nudge)
+        else:
+            bounds.update(x)
+            bounds.update(y)
+            bounds.update(x + width)
+            bounds.update(y + height)
 
     def resolve(self, ctx: ResolveContext) -> Element:
         """Resolve to VectorizedElement rect with corrected position and positive dimensions."""
@@ -57,6 +63,7 @@ class Bar(Element):
         y = resolved_attrib.pop("y")
         width = resolved_attrib.pop("width")
         height = resolved_attrib.pop("height")
+        nudge = resolved_attrib.pop("dapple:nudge", None)
 
         # Handle negative widths by adjusting x position
         if isinstance(width, AbsLengths):
@@ -103,6 +110,35 @@ class Bar(Element):
             if h_val < 0:
                 y = mm(y.scalar_value() + h_val)
                 height = mm(-h_val)
+
+        # Apply absolute nudge (if provided) to slightly enlarge rectangles
+        if nudge is not None:
+            if isinstance(nudge, AbsLengths):
+                nudge.assert_scalar()
+                nv = nudge.scalar_value()
+            else:
+                nv = float(nudge)
+
+            # Expand rectangle by nv on all sides
+            if isinstance(x, AbsLengths):
+                x = AbsLengths(x.values - nv)
+            else:
+                x = mm(x.scalar_value() - nv)
+
+            if isinstance(y, AbsLengths):
+                y = AbsLengths(y.values - nv)
+            else:
+                y = mm(y.scalar_value() - nv)
+
+            if isinstance(width, AbsLengths):
+                width = AbsLengths(width.values + 2 * nv)
+            else:
+                width = mm(width.scalar_value() + 2 * nv)
+
+            if isinstance(height, AbsLengths):
+                height = AbsLengths(height.values + 2 * nv)
+            else:
+                height = mm(height.scalar_value() + 2 * nv)
 
         # Return VectorizedElement with corrected values
         return VectorizedElement(

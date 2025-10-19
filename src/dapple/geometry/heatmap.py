@@ -5,8 +5,9 @@ from typing import Any, Iterable
 from numpy.typing import ArrayLike
 
 from ..coordinates import CtxLenType, cxv, cyv, Lengths
-from ..scales import color_params, length_params
+from ..scales import color_params, UnscaledValues
 from .bars import Bar
+from ..config import ConfigKey
 
 
 def _ensure_1d_positions(values: Iterable[Any], expected_len: int, axis_name: str):
@@ -90,8 +91,8 @@ def heatmap(
         y_centers_flat = [val for val, keep in zip(y_centers_flat, mask) if keep]
         color_vals = color_vals[mask]
 
-    x_centers_expr = length_params("x", x_centers_flat, CtxLenType.Pos)
-    y_centers_expr = length_params("y", y_centers_flat, CtxLenType.Pos)
+    x_centers_expr = UnscaledValues("x", x_centers_flat, CtxLenType.Pos)
+    y_centers_expr = UnscaledValues("y", y_centers_flat, CtxLenType.Pos)
 
     return Bar(
         x=x_centers_expr - cxv(0.5),
@@ -100,5 +101,5 @@ def heatmap(
         height=cyv(1.0),
         fill=color_params("color", color_vals),
         stroke="none",
-        **{"shape-rendering": "crispEdges"},
+        **{"shape-rendering": "crispEdges", "dapple:nudge": ConfigKey("heatmap_nudge")},
     )

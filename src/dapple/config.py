@@ -154,6 +154,9 @@ class Config:
     key_spacing: AbsLengths = field(default_factory=lambda: mm(1))
     key_gradient_width: AbsLengths = field(default_factory=lambda: mm(4))
 
+    # Heatmap configuration
+    heatmap_nudge: AbsLengths = field(default_factory=lambda: mm(0.05))
+
     # Rasterization configuration
     rasterize_dpi: float = 150.0
 
