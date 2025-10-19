@@ -250,7 +250,11 @@ class ScaleDiscrete(Scale, ABC):
     _unit: str
     fixed: bool
     labeler: Callable[[Sequence[Any]], list[str]]
-    sort_by: Callable[[Any], Any] | None
+    order_by: (
+        Callable[[Sequence[Any]], Sequence[Any]]
+        | Callable[[Sequence[Any], Sequence[Any | None]], Sequence[Any]]
+        | None
+    )
     map: dict[Any, int]
     targets: NDArray[np.float64]
     labels: NDArray[np.str_]
@@ -265,12 +269,14 @@ class ScaleDiscrete(Scale, ABC):
         values: Mapping[Any, Any] | Sequence[Any] | None = None,
         fixed: bool = False,
         labeler: Callable[[Sequence[Any]], list[str]] = default_labeler,
-        sort_by: Callable[[Any], Any] | None = lambda x: x,
+        order_by: Callable[[Sequence[Any]], Sequence[Any]]
+        | Callable[[Sequence[Any], Sequence[Any | None]], Sequence[Any]]
+        | None = sorted,
     ):
         self._unit = unit
         self.fixed = fixed
         self.labeler = labeler
-        self.sort_by = sort_by
+        self.order_by = order_by
         self._targets = dict()
         self.map = dict()
 
@@ -345,14 +351,21 @@ class ScaleDiscreteLength(ScaleDiscrete):
         values: Mapping[Any, Any] | Sequence[Any] | None = None,
         fixed: bool = False,
         labeler: Callable[[Sequence[Any]], list[str]] = default_labeler,
-        sort_by: Callable[[Any], Any] | None = lambda x: x,
+        order_by: Callable[[Sequence[Any]], Sequence[Any]]
+        | Callable[[Sequence[Any], Sequence[Any | None]], Sequence[Any]]
+        | None = sorted,
     ):
-        super().__init__(unit, values, fixed, labeler, sort_by)
+        super().__init__(unit, values, fixed, labeler, order_by)
 
     @override
     def finalize(self) -> None:
-        if self.sort_by is not None:
-            values = sorted(self._targets.keys(), key=self.sort_by)
+        if self.order_by is not None:
+            vals_list = list(self._targets.keys())
+            prelim_targets = [self._targets[v][1] for v in vals_list]
+            try:
+                values = self.order_by(vals_list, prelim_targets)  # type: ignore[misc]
+            except TypeError:
+                values = self.order_by(vals_list)
         else:
             values = self._targets.keys()
 
@@ -409,18 +422,25 @@ class ScaleDiscreteColor(ScaleDiscrete):
         values: Mapping[Any, Any] | Sequence[Any] | None = None,
         fixed: bool = False,
         labeler: Callable[[Sequence[Any]], list[str]] = default_labeler,
-        sort_by: Callable[[Any], Any] | None = lambda x: x,
+        order_by: Callable[[Sequence[Any]], Sequence[Any]]
+        | Callable[[Sequence[Any], Sequence[Any | None]], Sequence[Any]]
+        | None = sorted,
     ):
         if isinstance(colormap, ConfigKey):
             self.colormap = colormap
         else:
             self.colormap = Colormap(colormap)
-        super().__init__(unit, values, fixed, labeler, sort_by)
+        super().__init__(unit, values, fixed, labeler, order_by)
 
     @override
     def finalize(self) -> None:
-        if self.sort_by is not None:
-            values = sorted(self._targets.keys(), key=self.sort_by)
+        if self.order_by is not None:
+            vals_list = list(self._targets.keys())
+            prelim_targets = [self._targets[v][1] for v in vals_list]
+            try:
+                values = self.order_by(vals_list, prelim_targets)  # type: ignore[misc]
+            except TypeError:
+                values = self.order_by(vals_list)
         else:
             values = self._targets.keys()
 

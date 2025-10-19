@@ -9,3 +9,4 @@ from .scales import (
     colorcontinuous,
     colordiscrete,
 )
+from .hclust_order import HClustOrder
