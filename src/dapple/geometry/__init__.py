@@ -11,3 +11,4 @@ from .lines import line, lines, density
 from .bars import vertical_bars, horizontal_bars
 from .histogram import histogram
 from .heatmap import heatmap
+from .violin import vertical_violin, horizontal_violin, violin
