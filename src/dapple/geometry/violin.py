@@ -8,6 +8,7 @@ from typing import Any, Optional, Callable, Tuple, List, Union, override
 import numpy as np
 
 from ..elements import Element, Path, PathData
+from .lines import _adaptive_sample_function
 from ..scales import (
     UnscaledExpr,
     UnscaledValues,
@@ -200,6 +201,7 @@ def vertical_violin(
     color: Optional[Any] = None,
     bw_method: Any = None,
     weights: Optional[Iterable[float]] = None,
+    clip: float = 1e-3,
     n: int = 200,
 ) -> Element:
     """
@@ -252,16 +254,43 @@ def vertical_violin(
             dmin -= pad
             dmax += pad
 
-        grid = np.linspace(dmin, dmax, int(max(2, n)))
-        dens = _safe_kde_1d(data, grid, bw_method, ws)
+        # Build KDE and determine clipped endpoints
+        from scipy.stats import gaussian_kde
+
+        kde = gaussian_kde(data, bw_method=bw_method, weights=ws)
+
+        std = float(np.std(data))
+        if not math.isfinite(std) or std == 0.0:
+            std = max(1e-3, (dmax - dmin) if dmax > dmin else 1.0)
+
+        # Expand left until density falls below clip (or hard limit)
+        cur = dmin
+        left_limit = dmin - 10.0 * std
+        while kde(cur)[0] > clip and cur > left_limit:
+            cur -= std
+        left_bound = float(cur)
+
+        # Expand right until density falls below clip (or hard limit)
+        cur = dmax
+        right_limit = dmax + 10.0 * std
+        while kde(cur)[0] > clip and cur < right_limit:
+            cur += std
+        right_bound = float(cur)
+
+        # Adaptive sampling of the KDE curve
+        xs, ys = _adaptive_sample_function(lambda v: kde(v)[0], left_bound, right_bound)
+        if len(xs) < 2:
+            continue
+
+        dens = np.asarray(ys)
         dens_max = float(np.max(dens)) if dens.size > 0 else 0.0
         if dens_max <= 0.0 or not math.isfinite(dens_max):
             continue
         half = 0.5 * width * (dens / dens_max)
 
-        # Build UnscaledExpr vectors
-        y_vec = length_params("y", grid, CtxLenType.Pos)
-        x_center = length_params("x", [g] * len(grid), CtxLenType.Pos)
+        # Build UnscaledExpr vectors from adaptive samples
+        y_vec = length_params("y", xs, CtxLenType.Pos)
+        x_center = length_params("x", [g] * len(xs), CtxLenType.Pos)
         hw_x = cxv(half)
 
         x_left = x_center - hw_x
@@ -292,6 +321,7 @@ def horizontal_violin(
     color: Optional[Any] = None,
     bw_method: Any = None,
     weights: Optional[Iterable[float]] = None,
+    clip: float = 1e-3,
     n: int = 200,
 ) -> Element:
     """
@@ -343,15 +373,42 @@ def horizontal_violin(
             dmin -= pad
             dmax += pad
 
-        grid = np.linspace(dmin, dmax, int(max(2, n)))
-        dens = _safe_kde_1d(data, grid, bw_method, ws)
+        # Build KDE and determine clipped endpoints
+        from scipy.stats import gaussian_kde
+
+        kde = gaussian_kde(data, bw_method=bw_method, weights=ws)
+
+        std = float(np.std(data))
+        if not math.isfinite(std) or std == 0.0:
+            std = max(1e-3, (dmax - dmin) if dmax > dmin else 1.0)
+
+        # Expand left until density falls below clip (or hard limit)
+        cur = dmin
+        left_limit = dmin - 10.0 * std
+        while kde(cur)[0] > clip and cur > left_limit:
+            cur -= std
+        left_bound = float(cur)
+
+        # Expand right until density falls below clip (or hard limit)
+        cur = dmax
+        right_limit = dmax + 10.0 * std
+        while kde(cur)[0] > clip and cur < right_limit:
+            cur += std
+        right_bound = float(cur)
+
+        # Adaptive sampling of the KDE curve
+        xs, ys = _adaptive_sample_function(lambda v: kde(v)[0], left_bound, right_bound)
+        if len(xs) < 2:
+            continue
+
+        dens = np.asarray(ys)
         dens_max = float(np.max(dens)) if dens.size > 0 else 0.0
         if dens_max <= 0.0 or not math.isfinite(dens_max):
             continue
         half = 0.5 * width * (dens / dens_max)
 
-        x_vec = length_params("x", grid, CtxLenType.Pos)
-        y_center = length_params("y", [g] * len(grid), CtxLenType.Pos)
+        x_vec = length_params("x", xs, CtxLenType.Pos)
+        y_center = length_params("y", [g] * len(xs), CtxLenType.Pos)
         hw_y = cyv(half)
 
         y_low = y_center - hw_y
