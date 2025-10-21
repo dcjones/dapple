@@ -4,7 +4,7 @@ from basic_colormath import (
     rgb_to_lab,
     rgbs_to_lab,
     get_delta_e_matrix_lab,
-    get_delta_e,
+    get_delta_e_matrix,
 )
 import numpy as np
 from numpy.typing import NDArray
@@ -48,6 +48,28 @@ class Colors(Serializable):
             return Color(self.values.squeeze()).hex
         else:
             return [Color(self.values[i, :]).hex for i in range(len(self))]
+
+    def is_light(self):
+        """
+        Classify a color as light or dark based on the relative delte e between white and black.
+        """
+        de_black_white = get_delta_e_matrix(
+            255.0 * self.values[:, 0:3],
+            255.0 * np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]], dtype=np.float32),
+        )
+
+        return de_black_white[:, 1] <= de_black_white[:, 0]
+
+    def modulate_lightness(self, delta: float = 0.1):
+        """
+        Lighten or darken the color to produce a color that is similar but with a perceptible tweak.
+        """
+
+        lab = rgb_to_oklab(self.values[:, 0:3])
+        lab[:, 0] += delta
+        lab[self.is_light()] -= delta
+        rgb = oklab_to_rgb(lab)
+        return Colors(np.concat([rgb.clip(0.0, 1.0), self.values[:, 3:4]], axis=-1))
 
 
 @singledispatch
