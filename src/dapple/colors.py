@@ -1,5 +1,11 @@
 from cmap import Color, Colormap
 
+from basic_colormath import (
+    rgb_to_lab,
+    rgbs_to_lab,
+    get_delta_e_matrix_lab,
+    get_delta_e,
+)
 import numpy as np
 from numpy.typing import NDArray
 from functools import singledispatch
@@ -80,22 +86,26 @@ def distinguishable_colors(
     if background is None:
         background = color("white")
 
-    background_rgb = np.expand_dims(background.scalar_value()[0:3], 0)
-    background_lab = rgb_to_oklab(background_rgb)
+    background_rgb = np.astype(background.scalar_value(), np.float32)
+    background_lab = np.asarray(
+        rgb_to_lab(tuple(255 * background_rgb[0:3])), dtype=np.float32
+    )
 
     nsteps_per_channel = int(np.ceil(np.pow(n, 1 / 3)))
+    step_size = 255.0 / nsteps_per_channel
+    steps = np.arange(0.0, 255.0, step_size, dtype=np.float32)
 
-    step_size = 1.0 / nsteps_per_channel
-    steps = np.arange(0.0, 1.0, step_size, dtype=np.float32)
     candidates_rgb = np.reshape(np.stack(np.meshgrid(steps, steps, steps), -1), (-1, 3))
-    candidates_lab = rgb_to_oklab(candidates_rgb).astype(np.float32)
+    candidates_lab = rgbs_to_lab(candidates_rgb).astype(np.float32)
 
     candidate_indexes = distinguishable_colors_from_candidates(
         k, candidates_lab, background_lab
     )
 
     colors = candidates_rgb[candidate_indexes, :]
-    colors = np.concatenate([colors, np.ones((k, 1), dtype=np.float32)], axis=-1)
+    colors = np.concatenate(
+        [colors / 255.0, np.ones((k, 1), dtype=np.float32)], axis=-1
+    )
 
     return Colormap(colors.astype(np.float64))
 
@@ -113,9 +123,10 @@ def distinguishable_colors_from_candidates(
     diffs = np.full((k, n), np.inf, dtype=np.float32)
 
     for i in range(1, k + 1):
-        diffs[i - 1, :] = np.sum(np.square(candidates - colors[(i - 1) : i, :]), axis=1)
+        diffs[i - 1, :] = get_delta_e_matrix_lab(candidates, colors[(i - 1) : i, :])[
+            :, 0
+        ]
         j = cast(int, diffs.min(axis=0).argmax())
-        print(diffs.min(axis=0)[j])
         colors[i] = candidates[j, :]
         color_indexes[i - 1] = j
 
