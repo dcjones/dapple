@@ -8,6 +8,7 @@ from typing import Any, Optional, Callable, Tuple, List, Union, override
 import numpy as np
 
 from ..elements import Element, Path, PathData
+from ..colors import Colors
 from .lines import _adaptive_sample_function
 from ..scales import (
     UnscaledExpr,
@@ -84,22 +85,74 @@ class VerticalViolinElement(Element):
     def resolve(self, ctx: ResolveContext) -> Element:
         # Resolve attributes to absolute values
         resolved = super().resolve(ctx)
-        xl = resolved.attrib.pop("x_left")
-        xr = resolved.attrib.pop("x_right")
-        y = resolved.attrib.pop("y")
-
-        assert isinstance(xl, AbsLengths)
-        assert isinstance(xr, AbsLengths)
-        assert isinstance(y, AbsLengths)
+        xl = resolved.get_as("x_left", AbsLengths)
+        xr = resolved.get_as("x_right", AbsLengths)
+        y = resolved.get_as("y", AbsLengths)
+        bar_width = resolved.get_as("bar-width", AbsLengths).scalar_value()
 
         x_vals = np.concatenate([xl.values, xr.values[::-1], xl.values[0:1]])
         y_vals = np.concatenate([y.values, y.values[::-1], y.values[0:1]])
+
+        # Extract quartiles (resolved to absolute positions)
+        q1 = resolved.attrib.pop("q1", None)
+        q2 = resolved.attrib.pop("q2", None)
+        q3 = resolved.attrib.pop("q3", None)
 
         path = Element(
             "path",
             {"d": PathData(AbsLengths(x_vals), AbsLengths(y_vals)), **resolved.attrib},
         )
-        return path
+
+        # Overlay: IQR box and median line
+        overlays: list[Element] = []
+        # Determine center x from left/right
+        cx_vals = 0.5 * (xl.values + xr.values)
+        cx = float(np.median(cx_vals))
+
+        # Resolve fill and modulate for box color
+        fill_val = resolved.attrib.get("fill")
+        if isinstance(fill_val, Colors):
+            box_fill = fill_val.modulate_lightness(0.4)
+        else:
+            box_fill = fill_val
+
+        if (
+            isinstance(q1, AbsLengths)
+            and isinstance(q2, AbsLengths)
+            and isinstance(q3, AbsLengths)
+        ):
+            y1 = float(min(q1.scalar_value(), q3.scalar_value()))
+            y3 = float(max(q1.scalar_value(), q3.scalar_value()))
+            ym = float(q2.scalar_value())
+
+            # IQR rectangle (centered at cx, spanning y1..y3)
+            rect = Element(
+                "rect",
+                {
+                    "x": cx - 0.5 * bar_width,
+                    "y": y1,
+                    "width": bar_width,
+                    "height": y3 - y1,
+                    "fill": box_fill,
+                },
+            )
+            overlays.append(rect)
+
+            # Median line across the box
+            median_line = Element(
+                "line",
+                {
+                    "x1": cx - 0.5 * bar_width,
+                    "y1": ym,
+                    "x2": cx + 0.5 * bar_width,
+                    "y2": ym,
+                    "stroke": resolved.attrib.get("stroke", None),
+                    "stroke-width": resolved.attrib.get("stroke-width", None),
+                },
+            )
+            overlays.append(median_line)
+
+        return Element("g", {}, path, *overlays)
 
 
 class HorizontalViolinElement(Element):
@@ -126,22 +179,74 @@ class HorizontalViolinElement(Element):
     @override
     def resolve(self, ctx: ResolveContext) -> Element:
         resolved = super().resolve(ctx)
-        x = resolved.attrib.pop("x")
-        yl = resolved.attrib.pop("y_low")
-        yh = resolved.attrib.pop("y_high")
-
-        assert isinstance(x, AbsLengths)
-        assert isinstance(yl, AbsLengths)
-        assert isinstance(yh, AbsLengths)
+        x = resolved.get_as("x", AbsLengths)
+        yl = resolved.get_as("y_low", AbsLengths)
+        yh = resolved.get_as("y_high", AbsLengths)
+        bar_width = resolved.get_as("bar-width", AbsLengths).scalar_value()
 
         x_vals = np.concatenate([x.values, x.values[::-1], x.values[0:1]])
         y_vals = np.concatenate([yl.values, yh.values[::-1], yl.values[0:1]])
+
+        # Extract quartiles (resolved to absolute positions)
+        q1 = resolved.attrib.pop("q1", None)
+        q2 = resolved.attrib.pop("q2", None)
+        q3 = resolved.attrib.pop("q3", None)
 
         path = Element(
             "path",
             {"d": PathData(AbsLengths(x_vals), AbsLengths(y_vals)), **resolved.attrib},
         )
-        return path
+
+        # Overlay: IQR box and median line
+        overlays: list[Element] = []
+        # Determine center y from low/high
+        cy_vals = 0.5 * (yl.values + yh.values)
+        cy = float(np.median(cy_vals))
+
+        # Resolve fill and modulate for box color
+        fill_val = resolved.attrib.get("fill")
+        if isinstance(fill_val, Colors):
+            box_fill = fill_val.modulate_lightness(0.12)
+        else:
+            box_fill = fill_val
+
+        if (
+            isinstance(q1, AbsLengths)
+            and isinstance(q2, AbsLengths)
+            and isinstance(q3, AbsLengths)
+        ):
+            x1 = float(min(q1.scalar_value(), q3.scalar_value()))
+            x3 = float(max(q1.scalar_value(), q3.scalar_value()))
+            xm = float(q2.scalar_value())
+
+            # IQR rectangle (centered at cy, spanning x1..x3)
+            rect = Element(
+                "rect",
+                {
+                    "x": x1,
+                    "y": cy - 0.5 * bar_width,
+                    "width": x3 - x1,
+                    "height": bar_width,
+                    "fill": box_fill,
+                },
+            )
+            overlays.append(rect)
+
+            # Median line along x at y=center
+            median_line = Element(
+                "line",
+                {
+                    "x1": xm,
+                    "y1": cy - 0.5 * bar_width,
+                    "x2": xm,
+                    "y2": cy + 0.5 * bar_width,
+                    "stroke": resolved.attrib.get("stroke", None),
+                    "stroke-width": resolved.attrib.get("stroke-width", None),
+                },
+            )
+            overlays.append(median_line)
+
+        return Element("g", {}, path, *overlays)
 
 
 # ---- Color mapping -------------------------------------------------------------
@@ -300,10 +405,14 @@ def vertical_violin(
             x_left=x_left,
             x_right=x_right,
             y=y_vec,
+            q1=length_params("y", [np.quantile(data, 0.25)], CtxLenType.Pos),
+            q2=length_params("y", [np.quantile(data, 0.50)], CtxLenType.Pos),
+            q3=length_params("y", [np.quantile(data, 0.75)], CtxLenType.Pos),
             fill=color_params("color", fills[g]),
             **{
                 "stroke": ConfigKey("linecolor"),
-                "stroke-width": ConfigKey("linestroke"),
+                "stroke-width": ConfigKey("violin_median_stroke_width"),
+                "bar-width": ConfigKey("violin_bar_width"),
             },
         )
         container.append(path)
@@ -418,10 +527,14 @@ def horizontal_violin(
             x=x_vec,
             y_low=y_low,
             y_high=y_high,
+            q1=length_params("x", [np.quantile(data, 0.25)], CtxLenType.Pos),
+            q2=length_params("x", [np.quantile(data, 0.50)], CtxLenType.Pos),
+            q3=length_params("x", [np.quantile(data, 0.75)], CtxLenType.Pos),
             fill=color_params("color", fills[g]),
             **{
                 "stroke": ConfigKey("linecolor"),
-                "stroke-width": ConfigKey("linestroke"),
+                "stroke-width": ConfigKey("violin_median_stroke_width"),
+                "bar-width": ConfigKey("violin_bar_width"),
             },
         )
         container.append(path)

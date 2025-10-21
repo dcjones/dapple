@@ -114,6 +114,8 @@ class Config:
             niceness_weight=1 / 4,
         )
     )
+    violin_median_stroke_width: AbsLengths = field(default_factory=lambda: mm(0.8))
+    violin_bar_width: AbsLengths = field(default_factory=lambda: mm(1))
     grid_stroke_width: AbsLengths = field(default_factory=lambda: mm(0.2))
     grid_stroke: Colors = field(default_factory=lambda: color("#dddddd"))
     linecolor: Colors = field(default_factory=lambda: color("#333333"))
