@@ -416,9 +416,7 @@ class PathData(Serializable):
     """Generates SVG path data string from resolved coordinates."""
 
     def __init__(self, x_coords: AbsLengths, y_coords: AbsLengths):
-        if len(x_coords.values) != len(y_coords.values):
-            raise ValueError("x and y coordinate arrays must have the same length")
-        if len(x_coords.values) < 2:
+        if len(x_coords.values) < 2 and len(y_coords.values) < 2:
             raise ValueError("Path must have at least 2 points")
 
         self.x_coords = x_coords
@@ -436,8 +434,20 @@ class PathData(Serializable):
         x0, y0 = self.x_coords.values[0], self.y_coords.values[0]
         path_parts.append(f"M {x0:.3f} {y0:.3f}")
 
+        x_it = (
+            repeat(self.x_coords.values[0])
+            if self.x_coords.isscalar()
+            else self.x_coords.values[1:]
+        )
+
+        y_it = (
+            repeat(self.y_coords.values[0])
+            if self.y_coords.isscalar()
+            else self.y_coords.values[1:]
+        )
+
         # Line to subsequent points
-        for x, y in zip(self.x_coords.values[1:], self.y_coords.values[1:]):
+        for x, y in zip(x_it, y_it):
             path_parts.append(f"L {x:.3f} {y:.3f}")
 
         return " ".join(path_parts)
