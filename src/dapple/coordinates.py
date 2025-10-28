@@ -6,6 +6,7 @@ from decimal import Overflow
 from enum import Enum
 from functools import singledispatch
 from numpy.typing import NDArray
+from numbers import Real
 from typing import (
     Any,
     TypeAlias,
@@ -220,6 +221,15 @@ class AbsLengths(Lengths, Serializable):
         else:
             self.values = values.astype(np.float64)
 
+        # Lengths should be considered immutable.
+        self.values.setflags(write=False)
+
+    def __call__(self, values: Real | list[Real] | np.ndarray) -> AbsLengths:
+        if not self.isscalar():
+            raise Exception("Call-construct syntax only usable with scalar lengths")
+
+        return abslengths(values, scale=self.scalar_value())
+
     @override
     def __len__(self) -> int:
         return len(self.values)
@@ -295,46 +305,37 @@ class AbsLengths(Lengths, Serializable):
 
 
 @singledispatch
-def abslengths(value, scale=1.0) -> AbsLengths:
+def abslengths(value, scale: float = 1.0) -> AbsLengths:
     raise NotImplementedError(
         f"Type {type(value)} can't be converted to an absolute length."
     )
 
 
 @abslengths.register(float)
-def _(value, scale=1.0) -> AbsLengths:
+def _(value, scale: float = 1.0) -> AbsLengths:
     return AbsLengths(np.array([value * scale], dtype=np.float64))
 
 
 @abslengths.register(int)
-def _(value, scale=1.0) -> AbsLengths:
+def _(value, scale: float = 1.0) -> AbsLengths:
     return AbsLengths(np.array([value * scale], dtype=np.float64))
 
 
 @abslengths.register(list)
-def _(value, scale=1.0) -> AbsLengths:
+def _(value, scale: float = 1.0) -> AbsLengths:
     return AbsLengths(scale * np.asarray(value, dtype=np.float64))
 
 
 @abslengths.register(np.ndarray)
-def _(value, scale=1.0) -> AbsLengths:
+def _(value, scale: float = 1.0) -> AbsLengths:
     return AbsLengths((scale * value).astype(np.float64))
 
 
-def mm(value):
-    return abslengths(value)
-
-
-def cm(value):
-    return abslengths(value, scale=10)
-
-
-def pt(value):
-    return abslengths(value, scale=0.352778)
-
-
-def inch(value):
-    return abslengths(value, scale=25.4)
+# The problem with doing it this way is that
+mm = abslengths(1.0)
+cm = abslengths(10.0)
+pt = abslengths(0.352778)
+inch = abslengths(25.4)
 
 
 class CtxLenType(Enum):
@@ -377,6 +378,15 @@ class CtxLengths(Lengths):
             self.values = np.array([values[0]], dtype=np.float64)
         else:
             self.values = values.astype(np.float64)
+
+        # Lengths should be considered immutable.
+        self.values.setflags(write=False)
+
+    def __call__(self, values: Real | list[Real] | np.ndarray) -> CtxLengths:
+        if not self.isscalar():
+            raise Exception("Call-construct syntax only usable with scalar lengths")
+
+        return ctxlengths(values, self.unit, self.typ, scale=self.scalar_value())
 
     @override
     def __len__(self) -> int:
@@ -462,78 +472,44 @@ class CtxLengths(Lengths):
 
 
 @singledispatch
-def ctxlengths(value, unit: str, typ: CtxLenType) -> CtxLengths:
+def ctxlengths(value, unit: str, typ: CtxLenType, scale: float = 1.0) -> CtxLengths:
     raise NotImplementedError(
         f"Type {type(value)} can't be converted to a contextual length."
     )
 
 
 @ctxlengths.register(float)
-def _(value, unit: str, typ: CtxLenType) -> CtxLengths:
-    return CtxLengths(np.array([value], dtype=np.float64), unit, typ)
+def _(value, unit: str, typ: CtxLenType, scale: float = 1.0) -> CtxLengths:
+    return CtxLengths(np.array([value * scale], dtype=np.float64), unit, typ)
 
 
 @ctxlengths.register(int)
-def _(value, unit: str, typ: CtxLenType) -> CtxLengths:
-    return CtxLengths(np.array([value], dtype=np.float64), unit, typ)
+def _(value, unit: str, typ: CtxLenType, scale: float = 1.0) -> CtxLengths:
+    return CtxLengths(np.array([value * scale], dtype=np.float64), unit, typ)
 
 
 @ctxlengths.register(list)
-def _(value, unit: str, typ: CtxLenType) -> CtxLengths:
-    return CtxLengths(np.asarray(value, dtype=np.float64), unit, typ)
+def _(value, unit: str, typ: CtxLenType, scale: float = 1.0) -> CtxLengths:
+    return CtxLengths(scale * np.asarray(value, dtype=np.float64), unit, typ)
 
 
 @ctxlengths.register(np.ndarray)
-def _(value, unit: str, typ: CtxLenType) -> CtxLengths:
-    return CtxLengths(value.astype(np.float64), unit, typ)
+def _(value, unit: str, typ: CtxLenType, scale: float = 1.0) -> CtxLengths:
+    return CtxLengths((scale * value).astype(np.float64), unit, typ)
 
 
-def cx(value) -> CtxLengths:
-    return ctxlengths(value, "x", CtxLenType.Pos)
-
-
-def cxv(value) -> CtxLengths:
-    return ctxlengths(value, "x", CtxLenType.Vec)
-
-
-def cy(value) -> CtxLengths:
-    return ctxlengths(value, "y", CtxLenType.Pos)
-
-
-def cyv(value) -> CtxLengths:
-    return ctxlengths(value, "y", CtxLenType.Vec)
-
-
-def vw(value) -> CtxLengths:
-    return ctxlengths(value, "vw", CtxLenType.Pos)
-
-
-def vwv(value) -> CtxLengths:
-    return ctxlengths(value, "vw", CtxLenType.Vec)
-
-
-def vh(value) -> CtxLengths:
-    return ctxlengths(value, "vh", CtxLenType.Pos)
-
-
-def vhv(value) -> CtxLengths:
-    return ctxlengths(value, "vh", CtxLenType.Vec)
-
-
-def fw(value) -> CtxLengths:
-    return ctxlengths(value, "fw", CtxLenType.Pos)
-
-
-def fh(value) -> CtxLengths:
-    return ctxlengths(value, "fh", CtxLenType.Pos)
-
-
-def fwv(value) -> CtxLengths:
-    return ctxlengths(value, "fwv", CtxLenType.Vec)
-
-
-def fhv(value) -> CtxLengths:
-    return ctxlengths(value, "fhv", CtxLenType.Vec)
+cx = ctxlengths(1.0, "x", CtxLenType.Pos)
+cxv = ctxlengths(1.0, "x", CtxLenType.Vec)
+cy = ctxlengths(1.0, "y", CtxLenType.Pos)
+cyv = ctxlengths(1.0, "y", CtxLenType.Vec)
+vw = ctxlengths(1.0, "vw", CtxLenType.Pos)
+vwv = ctxlengths(1.0, "vw", CtxLenType.Vec)
+vh = ctxlengths(1.0, "vh", CtxLenType.Pos)
+vhv = ctxlengths(1.0, "vh", CtxLenType.Vec)
+fw = ctxlengths(1.0, "fw", CtxLenType.Pos)
+fwv = ctxlengths(1.0, "fwv", CtxLenType.Vec)
+fh = ctxlengths(1.0, "fh", CtxLenType.Pos)
+fhv = ctxlengths(1.0, "fhv", CtxLenType.Vec)
 
 
 @dataclass
