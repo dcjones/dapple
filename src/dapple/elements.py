@@ -419,6 +419,11 @@ class PathData(Serializable):
         if len(x_coords.values) < 2 and len(y_coords.values) < 2:
             raise ValueError("Path must have at least 2 points")
 
+        if len(x_coords.values) != len(y_coords.values):
+            raise ValueError(
+                "PathData must x and y coordinates must be the same length"
+            )
+
         self.x_coords = x_coords
         self.y_coords = y_coords
 
