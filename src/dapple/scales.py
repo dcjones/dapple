@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 from .colors import Colors
-from .coordinates import Lengths, CtxLengths, CtxLenType
+from .coordinates import Lengths, AbsLengths, CtxLengths, CtxLenType
 from .config import ConfigKey, ChooseTicksParams
 from abc import ABC, abstractmethod
 from cmap import Colormap, ColormapLike
-from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from numpy.typing import NDArray
-from typing import Any, TypeAlias, override, NamedTuple
-from collections.abc import Callable, Mapping, Sequence, Iterable as AbcIterable
+from typing import Any, TypeAlias, override, NamedTuple, cast
+from collections.abc import Callable, Mapping, Sequence, Iterable
 from numbers import Number
 import numpy as np
 import operator
@@ -56,7 +55,7 @@ class UnscaledValues(UnscaledExpr):
     """
 
     unit: str
-    values: AbcIterable[Any]
+    values: Iterable[Any]
     typ: CtxLenType = CtxLenType.Vec
 
     def __init__(self, unit: str, values: Any, typ: CtxLenType = CtxLenType.Vec):
@@ -94,6 +93,51 @@ def length_params(
     if isinstance(values, (ConfigKey, Lengths)):
         return values
     else:
+        # If everything is a AbsLengths or CtxLengths of the same type, pass the
+        # values through rather than try to scale them.
+        if isinstance(values, Iterable) and not isinstance(values, str):
+            nvalues = 0
+            all_len = True
+            all_abslen = True
+            all_ctxlen = True
+            last_ctxlen_unit = None
+            last_ctxlen_typ = None
+            for value in values:
+                nvalues += 1
+
+                if not isinstance(value, AbsLengths):
+                    all_abslen = False
+                    all_len = False
+
+                if not isinstance(value, CtxLengths):
+                    all_ctxlen = False
+                    all_len = False
+                else:
+                    if last_ctxlen_unit is None:
+                        last_ctxlen_unit = value.unit
+                        last_ctxlen_typ = value.typ
+                    elif value.unit != last_ctxlen_unit or value.typ != last_ctxlen_typ:
+                        all_ctxlen = False
+
+            if all_abslen and nvalues > 1:
+                return AbsLengths(
+                    np.concat([cast(AbsLengths, v).values for v in values])
+                )
+
+            if all_ctxlen and nvalues > 1:
+                return CtxLengths(
+                    np.concat(
+                        [cast(CtxLengths, v).values for v in values],
+                    ),
+                    cast(str, last_ctxlen_unit),
+                    cast(CtxLenType, last_ctxlen_typ),
+                )
+
+            if all_len and nvalues > 1:
+                raise ValueError(
+                    "Geometry length param values are all lengths, but mismatching types."
+                )
+
         return UnscaledValues(unit, values, typ)
 
 
