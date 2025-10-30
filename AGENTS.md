@@ -8,16 +8,14 @@ pure-SVG tree.
 
 # Plotting
 
-The full plotting pass, which is implemented in `plot.py`, works like so:
-  1. `ConfigKey` objects in element attributes are replaced using
-     values from a `Config` instance.
-  2. `UnscaledValues`, which hold raw data to be plotted, are converted
-     into`Lengths` or `Colors` according to which scales are present.
-  3. Coordinates are applied to transform `Lengths` into `AbsLengths` which
-     given absolute coordinates and sizes in millimeters.
-
 Plots are constructed with the `plot` function and drawn with the `Plot.svg`
 method, which expects an absolute width and height as well as on output sink.
+
+The typical way of defining a plot is to pass various elements and scales to `plot`, like
+`pl = plot(line(x=[0, 1], y=[0, 1]), xcontinuous(), ycontinuous(), title("Hello"))`
+
+But elements can also be appended after the plot is instantiated, like:
+`pl.append(points(x=[0, 1], y=[0, 1]))`
 
 # Development Commands
 
@@ -29,10 +27,19 @@ method, which expects an absolute width and height as well as on output sink.
 
 - **Elements (`elements.py`)**: Base `Element` class that mimics XML etree Elements but permits non-string attribute values. Elements are `Resolvable` objects that can be transformed during the plotting process.
 
+  * `VectorizedElement` implements a scheme for generating many of the same type of element in sequence. For efficiency reasons, this should be preferred when possible to instantiating many Elements with the same tag.
+  * `Path` is resolved to a SVG path element, but holds coordinates in a way that is legible to the plotting pipeline.
+  * `viewport` constructs a 'g' Element with special attributes describing positioning and coordinate transformations.
+
 - **Plot Resolution Pipeline (`plot.py`)**:
-  1. `ConfigKey` objects in element attributes are replaced using `Config` values
-  2. `UnscaledValues` (raw data) are converted to `Lengths` or `Colors` according to scales
-  3. Coordinates transform `Lengths` into `AbsLengths` (absolute mm coordinates)
+  1. `ConfigKey` (`config.py`) objects in element attributes are replaced using values stored in a  `Config` object.
+  2. `UnscaledValues` objects wrapping raw data are converted to `Lengths` or `Colors` according to what `Scale` objects are attached the plot.
+  3. Plot is laid out, computing the positioning of geometry like labels, titles, and axis ticks.
+  4. Coordinates transform of `Lengths` into `AbsLengths` (absolute mm coordinates). This requires first determining how to transform the scaled values. Custom Elements must implement the `update_bounds` function to inform this system of possible minimum and maximum positions..
+
+  * Because plot element trees go through these transformations, it's critical that Elements store
+important parameters such as colors and lengths in the attribute dictionary, rather than as members of the class, so they can be discovered and rewritten by this pipeline.
+  * To be discovered and mapped to meaningful units, these attributes should initially be wrapped in `UnscaledValues` objects. The `length_params` and `color_params` functions provide shortcuts for doing this.
 
 - **Coordinates (`coordinates.py`)**: Handles coordinate systems and transformations. Provides coordinate units like `mm`, `cm`, `pt`, `inch`, `cx`, `cy`, `vw`, `vh` for absolute and relative positioning.
 
@@ -61,5 +68,6 @@ method, which expects an absolute width and height as well as on output sink.
   * Use type annotations whenever possible.
   * Don't add comments to code that is fairly straightforward.
   * Put simple examples of new features in the `debug` directory.
-  * Prefer `VectorizedElement` to constructing many similar `Element` objects.
   * `AbsLengths` objects are constructed with the `mm` function.
+  * SVG rect elements don't support negative widths or height which can conflict
+    with plot coordinates being flipped by default. Prefer the `Bar` element defined in `bars.py`.
