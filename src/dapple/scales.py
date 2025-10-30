@@ -324,7 +324,7 @@ class ScaleDiscrete(Scale, ABC):
         self._targets = dict()
         self.map = dict()
 
-        if values == None:
+        if values is None:
             pass
         elif isinstance(values, Mapping):
             # Collect values that need labeling
