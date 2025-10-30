@@ -7,7 +7,7 @@ from .key import key
 from .image import image
 from .rasterized_polygons import rasterized_polygons
 from .rasterized_polygon_outlines import rasterized_polygon_outlines
-from .lines import line, lines, density
+from .lines import line, lines, segments, density
 from .bars import vertical_bars, horizontal_bars
 from .histogram import histogram
 from .heatmap import heatmap

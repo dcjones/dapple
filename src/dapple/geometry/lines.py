@@ -1,11 +1,11 @@
 import numpy as np
 from collections.abc import Callable, Iterable
-from typing import Any
+from typing import Any, override
 from numbers import Number
 import numpy as np
 from collections import defaultdict
 
-from ..elements import Element, Path, PathData
+from ..elements import Element, Path, PathData, VectorizedElement
 from ..scales import length_params, color_params, UnscaledValues
 from ..coordinates import (
     CtxLenType,
@@ -158,6 +158,20 @@ def lines(
     # Single line (same as line() function)
     else:
         return line(x, y, color)
+
+
+def segments(x1, y1, x2, y2, color=ConfigKey("linecolor")) -> Element:
+    return VectorizedElement(
+        "line",
+        {
+            "x1": length_params("x", x1, CtxLenType.Pos),
+            "y1": length_params("y", y1, CtxLenType.Pos),
+            "x2": length_params("x", x2, CtxLenType.Pos),
+            "y2": length_params("y", y2, CtxLenType.Pos),
+            "stroke": color_params("color", color),
+            "stroke-width": ConfigKey("linestroke"),
+        },
+    )
 
 
 def density(
