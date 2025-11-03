@@ -406,6 +406,17 @@ class CtxLengths(Lengths):
             return CtxLengths(self.values[index], self.unit, self.typ)
 
     @override
+    def __add__(self, other: Lengths) -> Lengths:
+        # Custom handling here to allow direct adding of positions and vectors of the same unit
+        if isinstance(other, CtxLengths) and other.unit == self.unit:
+            if self.typ == CtxLenType.Pos or other.typ == CtxLenType.Pos:
+                return CtxLengths(self.values + other.values, self.unit, CtxLenType.Pos)
+            else:
+                return CtxLengths(self.values + other.values, self.unit, CtxLenType.Vec)
+        else:
+            return super().__add__(other)
+
+    @override
     def unmin(self) -> CtxLengths:
         """
         Unary minimum.
