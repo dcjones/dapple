@@ -5,11 +5,11 @@ from .coordinates import Lengths, AbsLengths, CtxLengths, CtxLenType
 from .config import ConfigKey, ChooseTicksParams
 from abc import ABC, abstractmethod
 from cmap import Colormap, ColormapLike
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from numpy.typing import NDArray
-from typing import Any, TypeAlias, override, NamedTuple, cast
-from collections.abc import Callable, Mapping, Sequence, Iterable
+from typing import Any, TypeAlias, override, NamedTuple, cast, Callable
+from collections.abc import Mapping, Sequence, Iterable
 from numbers import Number
 import numpy as np
 import operator
@@ -141,11 +141,71 @@ def length_params(
         return UnscaledValues(unit, values, typ)
 
 
-def color_params(unit: str, values: Any) -> ConfigKey | Colors | UnscaledValues:
-    if isinstance(values, (ConfigKey, Colors)):
-        return values
+@dataclass
+class ColorTransformExpr(UnscaledExpr):
+    value: UnscaledExpr | Colors
+    transform: Callable[[Colors], Colors]
+
+    @override
+    def accept_fit(self, scaleset: ScaleSet) -> None:
+        if isinstance(self.value, UnscaledExpr):
+            self.value.accept_fit(scaleset)
+
+    @override
+    def accept_scale(self, scaleset: ScaleSet) -> Lengths | Colors:
+        base = (
+            self.value.accept_scale(scaleset)
+            if isinstance(self.value, UnscaledExpr)
+            else self.value
+        )
+        assert isinstance(base, Colors)
+        return self.transform(base)
+
+    @override
+    def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]) -> None:
+        if isinstance(self.value, UnscaledExpr):
+            self.value.accept_visitor(visitor)
+
+
+def _compose_color_transforms(
+    existing: Callable[[Any], Any] | None,
+    new: Callable[[Colors], Colors] | None,
+) -> Callable[[Any], Any] | None:
+    if existing is None:
+        return new
+    if new is None:
+        return existing
+
+    def composed(value: Any) -> Any:
+        return new(existing(value))
+
+    return composed
+
+
+def color_params(
+    unit: str,
+    values: Any,
+    transform: Callable[[Colors], Colors] | None = None,
+) -> ConfigKey | Colors | UnscaledExpr:
+    if isinstance(values, ConfigKey):
+        if transform is None:
+            return values
+        composed = _compose_color_transforms(values.transform, transform)
+        return replace(values, transform=composed)
+
+    if isinstance(values, Colors):
+        return transform(values) if transform is not None else values
+
+    base: UnscaledExpr
+    if isinstance(values, UnscaledExpr):
+        base = values
     else:
-        return UnscaledValues(unit, values)
+        base = UnscaledValues(unit, values)
+
+    if transform is None:
+        return base
+
+    return ColorTransformExpr(base, transform)
 
 
 @dataclass

@@ -2,30 +2,19 @@ from __future__ import annotations
 
 import math
 from collections import OrderedDict, defaultdict
-from collections.abc import Iterable
-from typing import Any, Optional, Callable, Tuple, List, Union, override
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from typing import Any, Optional
 
 import numpy as np
 
-from ..elements import Element, Path, PathData
+from ..elements import Element, Path
+from ..geometry.bars import Bar
+from ..scales import UnscaledExpr, UnscaledValues, length_params, color_params
+from ..coordinates import CtxLenType, Lengths, cxv, cyv
+from ..config import ConfigKey
 from ..colors import Colors
 from .lines import _adaptive_sample_function
-from ..scales import (
-    UnscaledExpr,
-    UnscaledValues,
-    length_params,
-    color_params,
-)
-from ..coordinates import (
-    CtxLenType,
-    ResolveContext,
-    CoordBounds,
-    Lengths,
-    AbsLengths,
-    cxv,
-    cyv,
-)
-from ..config import ConfigKey
 
 
 # ---- Utilities ----------------------------------------------------------------
@@ -39,217 +28,11 @@ def _unique_in_order(values: Iterable[Any]) -> list[Any]:
     return list(seen.keys())
 
 
-def _group_indices(keys: list[Any]) -> dict[Any, list[int]]:
+def _group_indices(keys: Sequence[Any]) -> dict[Any, list[int]]:
     groups: dict[Any, list[int]] = defaultdict(list)
     for i, k in enumerate(keys):
         groups[k].append(i)
     return groups
-
-
-def _safe_kde_1d(data: np.ndarray, grid: np.ndarray, bw_method, weights) -> np.ndarray:
-    """
-    Compute gaussian_kde density on the given grid.
-    """
-    from scipy.stats import gaussian_kde  # type: ignore
-
-    kde = gaussian_kde(data, bw_method=bw_method, weights=weights)
-    dens = kde(grid)
-    return dens
-
-
-# ---- Concat Expressions --------------------------------------------------------
-
-
-class VerticalViolinElement(Element):
-    """
-    Element holding separate left/right x segments and a shared y vector for a vertical violin.
-    Concatenation and closing are performed at resolve-time on AbsLengths.
-    """
-
-    def __init__(self, x_left: Lengths, x_right: Lengths, y: Lengths, **kwargs: object):
-        super().__init__(
-            "dapple:violin", {"x_left": x_left, "x_right": x_right, "y": y, **kwargs}
-        )
-
-    @override
-    def update_bounds(self, bounds: CoordBounds):
-        xl = self.get_as("x_left", Lengths)
-        xr = self.get_as("x_right", Lengths)
-        y = self.get_as("y", Lengths)
-        bounds.update(xl.unmin())
-        bounds.update(xr.unmax())
-        bounds.update(y.unmin())
-        bounds.update(y.unmax())
-
-    @override
-    def resolve(self, ctx: ResolveContext) -> Element:
-        # Resolve attributes to absolute values
-        resolved = super().resolve(ctx)
-        xl = resolved.get_as("x_left", AbsLengths)
-        xr = resolved.get_as("x_right", AbsLengths)
-        y = resolved.get_as("y", AbsLengths)
-        bar_width = resolved.get_as("bar-width", AbsLengths).scalar_value()
-
-        x_vals = np.concatenate([xl.values, xr.values[::-1], xl.values[0:1]])
-        y_vals = np.concatenate([y.values, y.values[::-1], y.values[0:1]])
-
-        # Extract quartiles (resolved to absolute positions)
-        q1 = resolved.attrib.pop("q1", None)
-        q2 = resolved.attrib.pop("q2", None)
-        q3 = resolved.attrib.pop("q3", None)
-
-        path = Element(
-            "path",
-            {"d": PathData(AbsLengths(x_vals), AbsLengths(y_vals)), **resolved.attrib},
-        )
-
-        # Overlay: IQR box and median line
-        overlays: list[Element] = []
-        # Determine center x from left/right
-        cx_vals = 0.5 * (xl.values + xr.values)
-        cx = float(np.median(cx_vals))
-
-        # Resolve fill and modulate for box color
-        fill_val = resolved.attrib.get("fill")
-        if isinstance(fill_val, Colors):
-            box_fill = fill_val.modulate_lightness(0.4)
-        else:
-            box_fill = fill_val
-
-        if (
-            isinstance(q1, AbsLengths)
-            and isinstance(q2, AbsLengths)
-            and isinstance(q3, AbsLengths)
-        ):
-            y1 = float(min(q1.scalar_value(), q3.scalar_value()))
-            y3 = float(max(q1.scalar_value(), q3.scalar_value()))
-            ym = float(q2.scalar_value())
-
-            # IQR rectangle (centered at cx, spanning y1..y3)
-            rect = Element(
-                "rect",
-                {
-                    "x": cx - 0.5 * bar_width,
-                    "y": y1,
-                    "width": bar_width,
-                    "height": y3 - y1,
-                    "fill": box_fill,
-                },
-            )
-            overlays.append(rect)
-
-            # Median line across the box
-            median_line = Element(
-                "line",
-                {
-                    "x1": cx - 0.5 * bar_width,
-                    "y1": ym,
-                    "x2": cx + 0.5 * bar_width,
-                    "y2": ym,
-                    "stroke": resolved.attrib.get("stroke", None),
-                    "stroke-width": resolved.attrib.get("stroke-width", None),
-                },
-            )
-            overlays.append(median_line)
-
-        return Element("g", {}, path, *overlays)
-
-
-class HorizontalViolinElement(Element):
-    """
-    Element holding separate lower/upper y segments and a shared x vector for a horizontal violin.
-    Concatenation and closing are performed at resolve-time on AbsLengths.
-    """
-
-    def __init__(self, x: Lengths, y_low: Lengths, y_high: Lengths, **kwargs: object):
-        super().__init__(
-            "dapple:violin", {"x": x, "y_low": y_low, "y_high": y_high, **kwargs}
-        )
-
-    @override
-    def update_bounds(self, bounds: CoordBounds):
-        x = self.get_as("x", Lengths)
-        yl = self.get_as("y_low", Lengths)
-        yh = self.get_as("y_high", Lengths)
-        bounds.update(x.unmin())
-        bounds.update(x.unmax())
-        bounds.update(yl.unmin())
-        bounds.update(yh.unmax())
-
-    @override
-    def resolve(self, ctx: ResolveContext) -> Element:
-        resolved = super().resolve(ctx)
-        x = resolved.get_as("x", AbsLengths)
-        yl = resolved.get_as("y_low", AbsLengths)
-        yh = resolved.get_as("y_high", AbsLengths)
-        bar_width = resolved.get_as("bar-width", AbsLengths).scalar_value()
-
-        x_vals = np.concatenate([x.values, x.values[::-1], x.values[0:1]])
-        y_vals = np.concatenate([yl.values, yh.values[::-1], yl.values[0:1]])
-
-        # Extract quartiles (resolved to absolute positions)
-        q1 = resolved.attrib.pop("q1", None)
-        q2 = resolved.attrib.pop("q2", None)
-        q3 = resolved.attrib.pop("q3", None)
-
-        path = Element(
-            "path",
-            {"d": PathData(AbsLengths(x_vals), AbsLengths(y_vals)), **resolved.attrib},
-        )
-
-        # Overlay: IQR box and median line
-        overlays: list[Element] = []
-        # Determine center y from low/high
-        cy_vals = 0.5 * (yl.values + yh.values)
-        cy = float(np.median(cy_vals))
-
-        # Resolve fill and modulate for box color
-        fill_val = resolved.attrib.get("fill")
-        if isinstance(fill_val, Colors):
-            box_fill = fill_val.modulate_lightness(0.12)
-        else:
-            box_fill = fill_val
-
-        if (
-            isinstance(q1, AbsLengths)
-            and isinstance(q2, AbsLengths)
-            and isinstance(q3, AbsLengths)
-        ):
-            x1 = float(min(q1.scalar_value(), q3.scalar_value()))
-            x3 = float(max(q1.scalar_value(), q3.scalar_value()))
-            xm = float(q2.scalar_value())
-
-            # IQR rectangle (centered at cy, spanning x1..x3)
-            rect = Element(
-                "rect",
-                {
-                    "x": x1,
-                    "y": cy - 0.5 * bar_width,
-                    "width": x3 - x1,
-                    "height": bar_width,
-                    "fill": box_fill,
-                },
-            )
-            overlays.append(rect)
-
-            # Median line along x at y=center
-            median_line = Element(
-                "line",
-                {
-                    "x1": xm,
-                    "y1": cy - 0.5 * bar_width,
-                    "x2": xm,
-                    "y2": cy + 0.5 * bar_width,
-                    "stroke": resolved.attrib.get("stroke", None),
-                    "stroke-width": resolved.attrib.get("stroke-width", None),
-                },
-            )
-            overlays.append(median_line)
-
-        return Element("g", {}, path, *overlays)
-
-
-# ---- Color mapping -------------------------------------------------------------
 
 
 def _colors_for_groups(
@@ -269,7 +52,7 @@ def _colors_for_groups(
     if color is None:
         return {g: ConfigKey("barcolor") for g in groups_in_order}
 
-    if isinstance(color, (str, ConfigKey)):
+    if isinstance(color, (str, ConfigKey, Colors)):
         return {g: color for g in groups_in_order}
 
     try:
@@ -295,6 +78,242 @@ def _colors_for_groups(
     )
 
 
+# ---- Orientation Specification ------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _OrientationSpec:
+    center_unit: str
+    value_unit: str
+    offset_factory: Any
+    is_vertical: bool
+
+    def center_scalar(self, group: Any) -> UnscaledExpr | Lengths:
+        return length_params(self.center_unit, [group], CtxLenType.Pos)
+
+    def value_series(self, values: Sequence[float]) -> UnscaledExpr | Lengths:
+        return length_params(self.value_unit, values, CtxLenType.Pos)
+
+    def value_scalar(self, value: float) -> UnscaledExpr | Lengths:
+        return length_params(self.value_unit, [value], CtxLenType.Pos)
+
+
+_VERTICAL_SPEC = _OrientationSpec(
+    center_unit="x",
+    value_unit="y",
+    offset_factory=cxv,
+    is_vertical=True,
+)
+
+_HORIZONTAL_SPEC = _OrientationSpec(
+    center_unit="y",
+    value_unit="x",
+    offset_factory=cyv,
+    is_vertical=False,
+)
+
+
+# ---- Core geometry construction ----------------------------------------------
+
+
+def _compute_violin_path(
+    group: Any,
+    data: np.ndarray,
+    spec: _OrientationSpec,
+    width: float,
+    fill_value: Any,
+    clip: float,
+    bw_method: Any,
+    weights: Optional[np.ndarray],
+) -> Element | None:
+    if data.size < 2:
+        return None
+
+    dmin = float(np.min(data))
+    dmax = float(np.max(data))
+    if not (math.isfinite(dmin) and math.isfinite(dmax)):
+        return None
+
+    if dmax <= dmin:
+        pad = 1.0 if dmin == 0.0 else abs(dmin) * 1e-6
+        dmin -= pad
+        dmax += pad
+
+    from scipy.stats import gaussian_kde
+
+    kde = gaussian_kde(data, bw_method=bw_method, weights=weights)
+
+    std = float(np.std(data))
+    if not math.isfinite(std) or std == 0.0:
+        std = max(1e-3, (dmax - dmin) if dmax > dmin else 1.0)
+
+    cur = dmin
+    left_limit = dmin - 10.0 * std
+    while kde(cur)[0] > clip and cur > left_limit:
+        cur -= std
+    left_bound = float(cur)
+
+    cur = dmax
+    right_limit = dmax + 10.0 * std
+    while kde(cur)[0] > clip and cur < right_limit:
+        cur += std
+    right_bound = float(cur)
+
+    xs, ys = _adaptive_sample_function(lambda v: kde(v)[0], left_bound, right_bound)
+    if len(xs) < 2:
+        return None
+
+    dens = np.asarray(ys)
+    values = np.asarray(xs, dtype=float)
+    dens_max = float(np.max(dens)) if dens.size > 0 else 0.0
+    if dens_max <= 0.0 or not math.isfinite(dens_max):
+        return None
+
+    half = 0.5 * width * (dens / dens_max)
+
+    center = spec.center_scalar(group)
+    path_offsets = np.concatenate([-half, half[::-1], [-half[0]]])
+    path_values = np.concatenate([values, values[::-1], [values[0]]])
+
+    if spec.is_vertical:
+        path_x = center + spec.offset_factory(path_offsets)
+        path_y = spec.value_series(path_values)
+    else:
+        path_x = spec.value_series(path_values)
+        path_y = center + spec.offset_factory(path_offsets)
+
+    fill_expr = color_params("color", fill_value)
+
+    path = Path(
+        path_x,
+        path_y,
+        fill=fill_expr,
+        stroke=ConfigKey("linecolor"),
+        **{"stroke-width": ConfigKey("violin_median_stroke_width")},
+    )
+
+    q1 = float(np.quantile(data, 0.25))
+    q2 = float(np.quantile(data, 0.50))
+    q3 = float(np.quantile(data, 0.75))
+
+    q_low_val = min(q1, q3)
+    q_high_val = max(q1, q3)
+
+    q_low = spec.value_scalar(q_low_val)
+    q_high = spec.value_scalar(q_high_val)
+    q_med = spec.value_scalar(q2)
+    center_scalar = center
+
+    max_half = float(np.max(half)) if half.size > 0 else 0.0
+    box_half_scalar = max_half * 0.3
+    elements: list[Element] = [path]
+
+    if box_half_scalar > 0.0:
+        box_half = spec.offset_factory(box_half_scalar)
+        primary_width = 2 * box_half
+
+        box_lightness = 0.4 if spec.is_vertical else 0.12
+        box_fill = color_params(
+            "color",
+            fill_value,
+            transform=lambda c: c.modulate_lightness(box_lightness),
+        )
+
+        if spec.is_vertical:
+            violin_bar = Bar(
+                x=center_scalar - box_half,
+                y=q_low,
+                width=primary_width,
+                height=q_high - q_low,
+                fill=box_fill,
+            )
+            median_line = Element(
+                "line",
+                {
+                    "x1": center_scalar - box_half,
+                    "y1": q_med,
+                    "x2": center_scalar + box_half,
+                    "y2": q_med,
+                    "stroke": ConfigKey("linecolor"),
+                    "stroke-width": ConfigKey("violin_median_stroke_width"),
+                },
+            )
+        else:
+            violin_bar = Bar(
+                x=q_low,
+                y=center_scalar - box_half,
+                width=q_high - q_low,
+                height=primary_width,
+                fill=box_fill,
+            )
+            median_line = Element(
+                "line",
+                {
+                    "x1": q_med,
+                    "y1": center_scalar - box_half,
+                    "x2": q_med,
+                    "y2": center_scalar + box_half,
+                    "stroke": ConfigKey("linecolor"),
+                    "stroke-width": ConfigKey("violin_median_stroke_width"),
+                },
+            )
+
+        elements.append(violin_bar)
+        elements.append(median_line)
+
+    if len(elements) == 1:
+        return path
+
+    return Element("g", {}, *elements)
+
+
+def _violin_impl(
+    groups: Sequence[Any],
+    data: Sequence[float],
+    spec: _OrientationSpec,
+    *,
+    width: float,
+    color: Optional[Any],
+    bw_method: Any,
+    weights: Optional[Sequence[float]],
+    clip: float,
+) -> Element:
+    groups_in_order = _unique_in_order(groups)
+    group_indices = _group_indices(groups)
+    fills = _colors_for_groups(groups_in_order, color, len(groups), group_indices)
+
+    weights_array = np.asarray(weights, dtype=float) if weights is not None else None
+    data_array = np.asarray(data, dtype=float)
+
+    container = Element("g")
+
+    for group in groups_in_order:
+        idxs = group_indices.get(group, [])
+        if len(idxs) < 2:
+            continue
+
+        group_data = data_array[idxs]
+        group_weights = weights_array[idxs] if weights_array is not None else None
+
+        violin_el = _compute_violin_path(
+            group,
+            group_data,
+            spec,
+            width,
+            fills[group],
+            clip,
+            bw_method,
+            group_weights,
+        )
+
+        if violin_el is not None:
+            container.append(violin_el)
+
+    if len(container) == 1:
+        return container[0]
+    return container
+
+
 # ---- Public API ----------------------------------------------------------------
 
 
@@ -307,20 +326,10 @@ def vertical_violin(
     bw_method: Any = None,
     weights: Optional[Iterable[float]] = None,
     clip: float = 1e-3,
-    n: int = 200,
 ) -> Element:
     """
     Draw vertical violins for distributions of y grouped by x.
     One violin per unique x (in order of first appearance).
-
-    Args:
-        x: Group values along x-axis (categorical or numeric).
-        y: Sample values.
-        width: Maximum full width in x data units (vector).
-        color: Fill color(s). Scalar, per-group, or per-sample.
-        bw_method: Bandwidth for gaussian_kde.
-        weights: Optional per-sample weights.
-        n: Number of grid points for KDE evaluation.
     """
     x_list = list(x)
     y_list = list(map(float, y))
@@ -331,95 +340,16 @@ def vertical_violin(
     if w_list is not None and len(w_list) != len(y_list):
         w_list = None
 
-    groups = _unique_in_order(x_list)
-    gidx = _group_indices(x_list)
-    fills = _colors_for_groups(groups, color, len(x_list), gidx)
-
-    container = Element("g")
-
-    for g in groups:
-        idxs = gidx.get(g, [])
-        if len(idxs) < 2:
-            continue
-
-        data = np.asarray([y_list[i] for i in idxs], dtype=float)
-        ws = (
-            np.asarray([w_list[i] for i in idxs], dtype=float)
-            if w_list is not None
-            else None
-        )
-
-        # Grid over data extent with guard for zero-span
-        dmin = float(np.min(data))
-        dmax = float(np.max(data))
-        if not (math.isfinite(dmin) and math.isfinite(dmax)):
-            continue
-        if dmax <= dmin:
-            pad = 1.0 if dmin == 0.0 else abs(dmin) * 1e-6
-            dmin -= pad
-            dmax += pad
-
-        # Build KDE and determine clipped endpoints
-        from scipy.stats import gaussian_kde
-
-        kde = gaussian_kde(data, bw_method=bw_method, weights=ws)
-
-        std = float(np.std(data))
-        if not math.isfinite(std) or std == 0.0:
-            std = max(1e-3, (dmax - dmin) if dmax > dmin else 1.0)
-
-        # Expand left until density falls below clip (or hard limit)
-        cur = dmin
-        left_limit = dmin - 10.0 * std
-        while kde(cur)[0] > clip and cur > left_limit:
-            cur -= std
-        left_bound = float(cur)
-
-        # Expand right until density falls below clip (or hard limit)
-        cur = dmax
-        right_limit = dmax + 10.0 * std
-        while kde(cur)[0] > clip and cur < right_limit:
-            cur += std
-        right_bound = float(cur)
-
-        # Adaptive sampling of the KDE curve
-        xs, ys = _adaptive_sample_function(lambda v: kde(v)[0], left_bound, right_bound)
-        if len(xs) < 2:
-            continue
-
-        dens = np.asarray(ys)
-        dens_max = float(np.max(dens)) if dens.size > 0 else 0.0
-        if dens_max <= 0.0 or not math.isfinite(dens_max):
-            continue
-        half = 0.5 * width * (dens / dens_max)
-
-        # Build UnscaledExpr vectors from adaptive samples
-        y_vec = length_params("y", xs, CtxLenType.Pos)
-        x_center = length_params("x", [g] * len(xs), CtxLenType.Pos)
-        hw_x = cxv(half)
-
-        x_left = x_center - hw_x
-        x_right = x_center + hw_x
-
-        path = VerticalViolinElement(
-            x_left=x_left,
-            x_right=x_right,
-            y=y_vec,
-            q1=length_params("y", [np.quantile(data, 0.25)], CtxLenType.Pos),
-            q2=length_params("y", [np.quantile(data, 0.50)], CtxLenType.Pos),
-            q3=length_params("y", [np.quantile(data, 0.75)], CtxLenType.Pos),
-            fill=color_params("color", fills[g]),
-            **{
-                "stroke": ConfigKey("linecolor"),
-                "stroke-width": ConfigKey("violin_median_stroke_width"),
-                "bar-width": ConfigKey("violin_bar_width"),
-            },
-        )
-        container.append(path)
-
-    if len(container) == 1:
-        return container[0]
-    return container
+    return _violin_impl(
+        x_list,
+        y_list,
+        _VERTICAL_SPEC,
+        width=width,
+        color=color,
+        bw_method=bw_method,
+        weights=w_list,
+        clip=clip,
+    )
 
 
 def horizontal_violin(
@@ -431,20 +361,10 @@ def horizontal_violin(
     bw_method: Any = None,
     weights: Optional[Iterable[float]] = None,
     clip: float = 1e-3,
-    n: int = 200,
 ) -> Element:
     """
     Draw horizontal violins for distributions of x grouped by y.
     One violin per unique y (in order of first appearance).
-
-    Args:
-        x: Sample values.
-        y: Group values along y-axis (categorical or numeric).
-        width: Maximum full height in y data units (vector).
-        color: Fill color(s). Scalar, per-group, or per-sample.
-        bw_method: Bandwidth for gaussian_kde.
-        weights: Optional per-sample weights.
-        n: Number of grid points for KDE evaluation.
     """
     x_list = list(map(float, x))
     y_list = list(y)
@@ -455,93 +375,16 @@ def horizontal_violin(
     if w_list is not None and len(w_list) != len(x_list):
         w_list = None
 
-    groups = _unique_in_order(y_list)
-    gidx = _group_indices(y_list)
-    fills = _colors_for_groups(groups, color, len(y_list), gidx)
-
-    container = Element("g")
-
-    for g in groups:
-        idxs = gidx.get(g, [])
-        if len(idxs) < 2:
-            continue
-
-        data = np.asarray([x_list[i] for i in idxs], dtype=float)
-        ws = (
-            np.asarray([w_list[i] for i in idxs], dtype=float)
-            if w_list is not None
-            else None
-        )
-
-        dmin = float(np.min(data))
-        dmax = float(np.max(data))
-        if not (math.isfinite(dmin) and math.isfinite(dmax)):
-            continue
-        if dmax <= dmin:
-            pad = 1.0 if dmin == 0.0 else abs(dmin) * 1e-6
-            dmin -= pad
-            dmax += pad
-
-        # Build KDE and determine clipped endpoints
-        from scipy.stats import gaussian_kde
-
-        kde = gaussian_kde(data, bw_method=bw_method, weights=ws)
-
-        std = float(np.std(data))
-        if not math.isfinite(std) or std == 0.0:
-            std = max(1e-3, (dmax - dmin) if dmax > dmin else 1.0)
-
-        # Expand left until density falls below clip (or hard limit)
-        cur = dmin
-        left_limit = dmin - 10.0 * std
-        while kde(cur)[0] > clip and cur > left_limit:
-            cur -= std
-        left_bound = float(cur)
-
-        # Expand right until density falls below clip (or hard limit)
-        cur = dmax
-        right_limit = dmax + 10.0 * std
-        while kde(cur)[0] > clip and cur < right_limit:
-            cur += std
-        right_bound = float(cur)
-
-        # Adaptive sampling of the KDE curve
-        xs, ys = _adaptive_sample_function(lambda v: kde(v)[0], left_bound, right_bound)
-        if len(xs) < 2:
-            continue
-
-        dens = np.asarray(ys)
-        dens_max = float(np.max(dens)) if dens.size > 0 else 0.0
-        if dens_max <= 0.0 or not math.isfinite(dens_max):
-            continue
-        half = 0.5 * width * (dens / dens_max)
-
-        x_vec = length_params("x", xs, CtxLenType.Pos)
-        y_center = length_params("y", [g] * len(xs), CtxLenType.Pos)
-        hw_y = cyv(half)
-
-        y_low = y_center - hw_y
-        y_high = y_center + hw_y
-
-        path = HorizontalViolinElement(
-            x=x_vec,
-            y_low=y_low,
-            y_high=y_high,
-            q1=length_params("x", [np.quantile(data, 0.25)], CtxLenType.Pos),
-            q2=length_params("x", [np.quantile(data, 0.50)], CtxLenType.Pos),
-            q3=length_params("x", [np.quantile(data, 0.75)], CtxLenType.Pos),
-            fill=color_params("color", fills[g]),
-            **{
-                "stroke": ConfigKey("linecolor"),
-                "stroke-width": ConfigKey("violin_median_stroke_width"),
-                "bar-width": ConfigKey("violin_bar_width"),
-            },
-        )
-        container.append(path)
-
-    if len(container) == 1:
-        return container[0]
-    return container
+    return _violin_impl(
+        y_list,
+        x_list,
+        _HORIZONTAL_SPEC,
+        width=width,
+        color=color,
+        bw_method=bw_method,
+        weights=w_list,
+        clip=clip,
+    )
 
 
 # Alias

@@ -16,6 +16,7 @@ class ConfigKey:
     """
 
     key: str
+    transform: Optional[Callable[[Any], Any]] = None
 
 
 @dataclass
@@ -191,7 +192,10 @@ class Config:
         return config
 
     def get(self, key: ConfigKey) -> Any:
-        return getattr(self, key.key)
+        value = getattr(self, key.key)
+        if key.transform is not None:
+            return key.transform(value)
+        return value
 
     def replace_keys(self, obj: object):
         """

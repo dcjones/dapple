@@ -5,6 +5,7 @@ import pytest
 
 from dapple.geometry import vertical_violin, horizontal_violin, violin
 from dapple.elements import Element
+from dapple.colors import Colors
 from dapple.scales import (
     UnscaledExpr,
     UnscaledValues,
@@ -102,7 +103,7 @@ def _iter_paths(el: Element):
     """
     if el.tag == "g":
         for child in el:
-            yield child
+            yield from _iter_paths(child)
     else:
         yield el
 
@@ -118,7 +119,7 @@ class TestVerticalViolin:
         paths = list(_iter_paths(el))
         assert len(paths) >= 1
         for p in paths:
-            assert p.tag in ("dapple:violin", "dapple:path")
+            assert p.tag in ("dapple:path", "dapple:bar", "line")
 
         # Pre-scale: ensure units include x, y, and color
         units = _collect_unscaled_units(el)
@@ -132,19 +133,49 @@ class TestVerticalViolin:
             if p.tag == "dapple:path":
                 assert isinstance(p.attrib.get("x"), Lengths)
                 assert isinstance(p.attrib.get("y"), Lengths)
-            else:
-                # Custom violin element prior to final resolve: expect separate parts
-                assert isinstance(p.attrib.get("x_left"), Lengths)
-                assert isinstance(p.attrib.get("x_right"), Lengths)
+            elif p.tag == "dapple:bar":
+                assert isinstance(p.attrib.get("x"), Lengths)
                 assert isinstance(p.attrib.get("y"), Lengths)
-            # fill is scaled color or ConfigKey left for config, but not essential here
+                assert isinstance(p.attrib.get("width"), Lengths)
+                assert isinstance(p.attrib.get("height"), Lengths)
+            elif p.tag == "line":
+                assert isinstance(p.attrib.get("x1"), Lengths)
+                assert isinstance(p.attrib.get("y1"), Lengths)
+                assert isinstance(p.attrib.get("x2"), Lengths)
+                assert isinstance(p.attrib.get("y2"), Lengths)
+
+        path_colors = []
+        bar_colors = []
+        for p in _iter_paths(scaled):
+            if p.tag == "dapple:path" and isinstance(p.attrib.get("fill"), Colors):
+                path_colors.append(p.attrib["fill"])
+            elif p.tag == "dapple:bar" and isinstance(p.attrib.get("fill"), Colors):
+                bar_colors.append(p.attrib["fill"])
+
+        assert len(bar_colors) == len(path_colors)
+        for base, box in zip(path_colors, bar_colors):
+            expected = base.modulate_lightness(0.12)
+            assert np.allclose(box.values, expected.values)
+
+        path_colors = []
+        bar_colors = []
+        for p in _iter_paths(scaled):
+            if p.tag == "dapple:path" and isinstance(p.attrib.get("fill"), Colors):
+                path_colors.append(p.attrib["fill"])
+            elif p.tag == "dapple:bar" and isinstance(p.attrib.get("fill"), Colors):
+                bar_colors.append(p.attrib["fill"])
+
+        assert len(bar_colors) == len(path_colors)
+        for base, box in zip(path_colors, bar_colors):
+            expected = base.modulate_lightness(0.4)
+            assert np.allclose(box.values, expected.values)
 
     def test_vertical_violin_single_group_returns_path(self):
         x = ["Z"] * 20
         y = np.linspace(0.0, 1.0, 20)
         el = vertical_violin(x=x, y=y)
         # Single group => Path directly (pre-resolve may be a custom violin element)
-        assert el.tag in ("dapple:violin", "dapple:path")
+        assert el.tag in ("g", "dapple:path")
 
         units = _collect_unscaled_units(el)
         assert "x" in units and "y" in units
@@ -154,10 +185,8 @@ class TestVerticalViolin:
             assert isinstance(scaled.attrib.get("x"), Lengths)
             assert isinstance(scaled.attrib.get("y"), Lengths)
         else:
-            # Custom violin element prior to final resolve: expect separate parts
-            assert isinstance(scaled.attrib.get("x_left"), Lengths)
-            assert isinstance(scaled.attrib.get("x_right"), Lengths)
-            assert isinstance(scaled.attrib.get("y"), Lengths)
+            children = list(_iter_paths(scaled))
+            assert any(child.tag == "dapple:path" for child in children)
 
     def test_violin_alias_equivalence(self):
         # violin is an alias for vertical_violin
@@ -183,7 +212,7 @@ class TestHorizontalViolin:
         paths = list(_iter_paths(el))
         assert len(paths) >= 1
         for p in paths:
-            assert p.tag in ("dapple:violin", "dapple:path")
+            assert p.tag in ("dapple:path", "dapple:bar", "line")
 
         units = _collect_unscaled_units(el)
         assert "x" in units
@@ -195,17 +224,22 @@ class TestHorizontalViolin:
             if p.tag == "dapple:path":
                 assert isinstance(p.attrib.get("x"), Lengths)
                 assert isinstance(p.attrib.get("y"), Lengths)
-            else:
-                # Custom violin element prior to final resolve: expect separate parts
+            elif p.tag == "dapple:bar":
                 assert isinstance(p.attrib.get("x"), Lengths)
-                assert isinstance(p.attrib.get("y_low"), Lengths)
-                assert isinstance(p.attrib.get("y_high"), Lengths)
+                assert isinstance(p.attrib.get("y"), Lengths)
+                assert isinstance(p.attrib.get("width"), Lengths)
+                assert isinstance(p.attrib.get("height"), Lengths)
+            elif p.tag == "line":
+                assert isinstance(p.attrib.get("x1"), Lengths)
+                assert isinstance(p.attrib.get("y1"), Lengths)
+                assert isinstance(p.attrib.get("x2"), Lengths)
+                assert isinstance(p.attrib.get("y2"), Lengths)
 
     def test_horizontal_violin_single_group_returns_path(self):
         y = ["Only"] * 16
         x = np.sin(np.linspace(0.0, 2 * math.pi, 16))
         el = horizontal_violin(x=x, y=y)
-        assert el.tag in ("dapple:violin", "dapple:path")
+        assert el.tag in ("g", "dapple:path")
 
         units = _collect_unscaled_units(el)
         assert "x" in units and "y" in units
@@ -215,7 +249,5 @@ class TestHorizontalViolin:
             assert isinstance(scaled.attrib.get("x"), Lengths)
             assert isinstance(scaled.attrib.get("y"), Lengths)
         else:
-            # Custom violin element prior to final resolve: expect separate parts
-            assert isinstance(scaled.attrib.get("x"), Lengths)
-            assert isinstance(scaled.attrib.get("y_low"), Lengths)
-            assert isinstance(scaled.attrib.get("y_high"), Lengths)
+            children = list(_iter_paths(scaled))
+            assert any(child.tag == "dapple:path" for child in children)
