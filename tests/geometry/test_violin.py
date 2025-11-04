@@ -119,7 +119,7 @@ class TestVerticalViolin:
         paths = list(_iter_paths(el))
         assert len(paths) >= 1
         for p in paths:
-            assert p.tag in ("dapple:path", "dapple:bar", "line")
+            assert p.tag in ("dapple:path", "dapple:violin_quartile", "line")
 
         # Pre-scale: ensure units include x, y, and color
         units = _collect_unscaled_units(el)
@@ -133,11 +133,11 @@ class TestVerticalViolin:
             if p.tag == "dapple:path":
                 assert isinstance(p.attrib.get("x"), Lengths)
                 assert isinstance(p.attrib.get("y"), Lengths)
-            elif p.tag == "dapple:bar":
-                assert isinstance(p.attrib.get("x"), Lengths)
-                assert isinstance(p.attrib.get("y"), Lengths)
-                assert isinstance(p.attrib.get("width"), Lengths)
-                assert isinstance(p.attrib.get("height"), Lengths)
+            elif p.tag == "dapple:violin_quartile":
+                assert isinstance(p.attrib.get("center"), Lengths)
+                assert isinstance(p.attrib.get("q_low"), Lengths)
+                assert isinstance(p.attrib.get("q_high"), Lengths)
+                assert isinstance(p.attrib.get("q_med"), Lengths)
             elif p.tag == "line":
                 assert isinstance(p.attrib.get("x1"), Lengths)
                 assert isinstance(p.attrib.get("y1"), Lengths)
@@ -145,28 +145,18 @@ class TestVerticalViolin:
                 assert isinstance(p.attrib.get("y2"), Lengths)
 
         path_colors = []
-        bar_colors = []
+        overlay_colors = []
         for p in _iter_paths(scaled):
             if p.tag == "dapple:path" and isinstance(p.attrib.get("fill"), Colors):
                 path_colors.append(p.attrib["fill"])
-            elif p.tag == "dapple:bar" and isinstance(p.attrib.get("fill"), Colors):
-                bar_colors.append(p.attrib["fill"])
+            elif (
+                p.tag == "dapple:violin_quartile"
+                and isinstance(p.attrib.get("fill"), Colors)
+            ):
+                overlay_colors.append(p.attrib["fill"])
 
-        assert len(bar_colors) == len(path_colors)
-        for base, box in zip(path_colors, bar_colors):
-            expected = base.modulate_lightness(0.12)
-            assert np.allclose(box.values, expected.values)
-
-        path_colors = []
-        bar_colors = []
-        for p in _iter_paths(scaled):
-            if p.tag == "dapple:path" and isinstance(p.attrib.get("fill"), Colors):
-                path_colors.append(p.attrib["fill"])
-            elif p.tag == "dapple:bar" and isinstance(p.attrib.get("fill"), Colors):
-                bar_colors.append(p.attrib["fill"])
-
-        assert len(bar_colors) == len(path_colors)
-        for base, box in zip(path_colors, bar_colors):
+        assert len(overlay_colors) == len(path_colors)
+        for base, box in zip(path_colors, overlay_colors):
             expected = base.modulate_lightness(0.4)
             assert np.allclose(box.values, expected.values)
 
@@ -212,7 +202,7 @@ class TestHorizontalViolin:
         paths = list(_iter_paths(el))
         assert len(paths) >= 1
         for p in paths:
-            assert p.tag in ("dapple:path", "dapple:bar", "line")
+            assert p.tag in ("dapple:path", "dapple:violin_quartile", "line")
 
         units = _collect_unscaled_units(el)
         assert "x" in units
@@ -224,16 +214,32 @@ class TestHorizontalViolin:
             if p.tag == "dapple:path":
                 assert isinstance(p.attrib.get("x"), Lengths)
                 assert isinstance(p.attrib.get("y"), Lengths)
-            elif p.tag == "dapple:bar":
-                assert isinstance(p.attrib.get("x"), Lengths)
-                assert isinstance(p.attrib.get("y"), Lengths)
-                assert isinstance(p.attrib.get("width"), Lengths)
-                assert isinstance(p.attrib.get("height"), Lengths)
+            elif p.tag == "dapple:violin_quartile":
+                assert isinstance(p.attrib.get("center"), Lengths)
+                assert isinstance(p.attrib.get("q_low"), Lengths)
+                assert isinstance(p.attrib.get("q_high"), Lengths)
+                assert isinstance(p.attrib.get("q_med"), Lengths)
             elif p.tag == "line":
                 assert isinstance(p.attrib.get("x1"), Lengths)
                 assert isinstance(p.attrib.get("y1"), Lengths)
                 assert isinstance(p.attrib.get("x2"), Lengths)
                 assert isinstance(p.attrib.get("y2"), Lengths)
+
+        path_colors = []
+        overlay_colors = []
+        for p in _iter_paths(scaled):
+            if p.tag == "dapple:path" and isinstance(p.attrib.get("fill"), Colors):
+                path_colors.append(p.attrib["fill"])
+            elif (
+                p.tag == "dapple:violin_quartile"
+                and isinstance(p.attrib.get("fill"), Colors)
+            ):
+                overlay_colors.append(p.attrib["fill"])
+
+        assert len(overlay_colors) == len(path_colors)
+        for base, box in zip(path_colors, overlay_colors):
+            expected = base.modulate_lightness(0.12)
+            assert np.allclose(box.values, expected.values)
 
     def test_horizontal_violin_single_group_returns_path(self):
         y = ["Only"] * 16

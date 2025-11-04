@@ -415,7 +415,9 @@ class VectorizedElement(Element):
 class PathData(Serializable):
     """Generates SVG path data string from resolved coordinates."""
 
-    def __init__(self, x_coords: AbsLengths, y_coords: AbsLengths):
+    def __init__(
+        self, x_coords: AbsLengths, y_coords: AbsLengths, closed: bool = False
+    ):
         if len(x_coords.values) < 2 and len(y_coords.values) < 2:
             raise ValueError("Path must have at least 2 points")
 
@@ -428,6 +430,7 @@ class PathData(Serializable):
 
         self.x_coords = x_coords
         self.y_coords = y_coords
+        self.closed = closed
 
     def serialize(self) -> str:
         """Generate SVG path string from coordinates."""
@@ -457,15 +460,19 @@ class PathData(Serializable):
         for x, y in zip(x_it, y_it):
             path_parts.append(f"L {x:.3f} {y:.3f}")
 
+        if self.closed:
+            path_parts.append("Z")
+
         return " ".join(path_parts)
 
 
 class Path(Element):
     """Path element that resolves to SVG path with proper coordinate handling."""
 
-    def __init__(self, x_coords, y_coords, **kwargs):
+    def __init__(self, x_coords, y_coords, *, closed: bool = False, **kwargs):
         super().__init__(tag="dapple:path")
         self.attrib = {"x": x_coords, "y": y_coords, **kwargs}
+        self._closed = closed
 
     def resolve(self, ctx: ResolveContext) -> Element:
         """Resolve to SVG path element."""
@@ -476,7 +483,7 @@ class Path(Element):
         y_coords = resolved_attrib.pop("y")
 
         # Generate path data
-        path_data = PathData(x_coords, y_coords)
+        path_data = PathData(x_coords, y_coords, closed=self._closed)
 
         # Create SVG path element with resolved attributes
         return Element("path", {"d": path_data, **resolved_attrib})

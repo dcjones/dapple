@@ -4,14 +4,22 @@ import math
 from collections import OrderedDict, defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, override
 
 import numpy as np
 
 from ..elements import Element, Path
 from ..geometry.bars import Bar
 from ..scales import UnscaledExpr, UnscaledValues, length_params, color_params
-from ..coordinates import CtxLenType, Lengths, cxv, cyv
+from ..coordinates import (
+    CtxLenType,
+    Lengths,
+    AbsLengths,
+    ResolveContext,
+    resolve,
+    cxv,
+    cyv,
+)
 from ..config import ConfigKey
 from ..colors import Colors
 from .lines import _adaptive_sample_function
@@ -113,6 +121,105 @@ _HORIZONTAL_SPEC = _OrientationSpec(
 )
 
 
+class ViolinQuartileOverlay(Element):
+    """
+    Custom element that renders quartile bar and median line after values have been
+    resolved to absolute coordinates.
+    """
+
+    def __init__(
+        self,
+        orientation: str,
+        center: Lengths,
+        q_low: Lengths,
+        q_high: Lengths,
+        q_med: Lengths,
+        width: ConfigKey,
+        fill: UnscaledExpr | Colors,
+        stroke: ConfigKey,
+        stroke_width: ConfigKey,
+    ):
+        super().__init__(
+            "dapple:violin_quartile",
+            {
+                "orientation": orientation,
+                "center": center,
+                "q_low": q_low,
+                "q_high": q_high,
+                "q_med": q_med,
+                "width": width,
+                "fill": fill,
+                "stroke": stroke,
+                "stroke-width": stroke_width,
+            },
+        )
+
+    @override
+    def resolve(self, ctx: ResolveContext) -> Element:
+        orientation = self.attrib["orientation"]
+        center = resolve(self.attrib["center"], ctx)
+        q_low = resolve(self.attrib["q_low"], ctx)
+        q_high = resolve(self.attrib["q_high"], ctx)
+        q_med = resolve(self.attrib["q_med"], ctx)
+        width = resolve(self.attrib["width"], ctx)
+        fill = resolve(self.attrib["fill"], ctx)
+        stroke = resolve(self.attrib["stroke"], ctx)
+        stroke_width = resolve(self.attrib["stroke-width"], ctx)
+
+        assert isinstance(center, AbsLengths)
+        assert isinstance(q_low, AbsLengths)
+        assert isinstance(q_high, AbsLengths)
+        assert isinstance(q_med, AbsLengths)
+        assert isinstance(width, AbsLengths)
+
+        if width.scalar_value() <= 0:
+            return Element("g")
+
+        center_val = center.scalar_value()
+        q_low_val = q_low.scalar_value()
+        q_high_val = q_high.scalar_value()
+        q_med_val = q_med.scalar_value()
+        width_val = width.scalar_value()
+        half_width = 0.5 * width_val
+
+        if orientation == "vertical":
+            bar = Bar(
+                x=AbsLengths(np.array([center_val - half_width])),
+                y=AbsLengths(np.array([min(q_low_val, q_high_val)])),
+                width=AbsLengths(np.array([width_val])),
+                height=AbsLengths(np.array([abs(q_high_val - q_low_val)])),
+                fill=fill,
+            ).resolve(ctx)
+            line_attribs = {
+                "x1": center_val - half_width,
+                "y1": q_med_val,
+                "x2": center_val + half_width,
+                "y2": q_med_val,
+                "stroke": stroke,
+                "stroke-width": stroke_width,
+                "stroke-linecap": "square",
+            }
+        else:
+            bar = Bar(
+                x=AbsLengths(np.array([min(q_low_val, q_high_val)])),
+                y=AbsLengths(np.array([center_val - half_width])),
+                width=AbsLengths(np.array([abs(q_high_val - q_low_val)])),
+                height=AbsLengths(np.array([width_val])),
+                fill=fill,
+            ).resolve(ctx)
+            line_attribs = {
+                "x1": q_med_val,
+                "y1": center_val - half_width,
+                "x2": q_med_val,
+                "y2": center_val + half_width,
+                "stroke": stroke,
+                "stroke-width": stroke_width,
+                "stroke-linecap": "square",
+            }
+
+        return Element("g", {}, bar, Element("line", line_attribs))
+
+
 # ---- Core geometry construction ----------------------------------------------
 
 
@@ -172,8 +279,8 @@ def _compute_violin_path(
     half = 0.5 * width * (dens / dens_max)
 
     center = spec.center_scalar(group)
-    path_offsets = np.concatenate([-half, half[::-1], [-half[0]]])
-    path_values = np.concatenate([values, values[::-1], [values[0]]])
+    path_offsets = np.concatenate([-half, half[::-1]])
+    path_values = np.concatenate([values, values[::-1]])
 
     if spec.is_vertical:
         path_x = center + spec.offset_factory(path_offsets)
@@ -189,6 +296,7 @@ def _compute_violin_path(
         path_y,
         fill=fill_expr,
         stroke=ConfigKey("linecolor"),
+        closed=True,
         **{"stroke-width": ConfigKey("violin_median_stroke_width")},
     )
 
@@ -204,62 +312,28 @@ def _compute_violin_path(
     q_med = spec.value_scalar(q2)
     center_scalar = center
 
-    max_half = float(np.max(half)) if half.size > 0 else 0.0
-    box_half_scalar = max_half * 0.3
     elements: list[Element] = [path]
 
-    if box_half_scalar > 0.0:
-        box_half = spec.offset_factory(box_half_scalar)
-        primary_width = 2 * box_half
+    box_lightness = 0.4 if spec.is_vertical else 0.12
+    box_fill = color_params(
+        "color",
+        fill_value,
+        transform=lambda c: c.modulate_lightness(box_lightness),
+    )
 
-        box_lightness = 0.4 if spec.is_vertical else 0.12
-        box_fill = color_params(
-            "color",
-            fill_value,
-            transform=lambda c: c.modulate_lightness(box_lightness),
-        )
+    overlay = ViolinQuartileOverlay(
+        "vertical" if spec.is_vertical else "horizontal",
+        center=center_scalar,
+        q_low=q_low,
+        q_high=q_high,
+        q_med=q_med,
+        width=ConfigKey("violin_bar_width"),
+        fill=box_fill,
+        stroke=ConfigKey("linecolor"),
+        stroke_width=ConfigKey("violin_median_stroke_width"),
+    )
 
-        if spec.is_vertical:
-            violin_bar = Bar(
-                x=center_scalar - box_half,
-                y=q_low,
-                width=primary_width,
-                height=q_high - q_low,
-                fill=box_fill,
-            )
-            median_line = Element(
-                "line",
-                {
-                    "x1": center_scalar - box_half,
-                    "y1": q_med,
-                    "x2": center_scalar + box_half,
-                    "y2": q_med,
-                    "stroke": ConfigKey("linecolor"),
-                    "stroke-width": ConfigKey("violin_median_stroke_width"),
-                },
-            )
-        else:
-            violin_bar = Bar(
-                x=q_low,
-                y=center_scalar - box_half,
-                width=q_high - q_low,
-                height=primary_width,
-                fill=box_fill,
-            )
-            median_line = Element(
-                "line",
-                {
-                    "x1": q_med,
-                    "y1": center_scalar - box_half,
-                    "x2": q_med,
-                    "y2": center_scalar + box_half,
-                    "stroke": ConfigKey("linecolor"),
-                    "stroke-width": ConfigKey("violin_median_stroke_width"),
-                },
-            )
-
-        elements.append(violin_bar)
-        elements.append(median_line)
+    elements.append(overlay)
 
     if len(elements) == 1:
         return path
