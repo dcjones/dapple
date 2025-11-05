@@ -225,7 +225,7 @@ class Plot(Element):
         nright = 0
         ntop = 0
         nbottom = 0
-        for child in self:
+        for child in els:
             position = child.attrib.get("dapple:position", Position.Default)
             assert isinstance(position, Position)
 
