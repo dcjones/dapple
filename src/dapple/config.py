@@ -5,6 +5,7 @@ import os
 import tomllib
 from .colors import Colors, color, distinguishable_colors
 from .coordinates import AbsLengths, mm, cm, pt, inch
+from .layout import Position
 from cmap import Colormap
 
 
@@ -156,6 +157,7 @@ class Config:
     key_square_size: AbsLengths = field(default_factory=lambda: mm(2.5))
     key_spacing: AbsLengths = field(default_factory=lambda: mm(1))
     key_gradient_width: AbsLengths = field(default_factory=lambda: mm(4))
+    key_position: Position = field(default_factory=lambda: Position.RightCenter)
 
     # Heatmap configuration
     heatmap_nudge: AbsLengths = field(default_factory=lambda: mm(0.05))

@@ -41,9 +41,10 @@ class Key(Element):
         gradient_width=ConfigKey("key_gradient_width"),
         stroke_width=ConfigKey("tick_stroke_width"),
         tick_length=ConfigKey("tick_length"),
+        position=ConfigKey(key="key_position"),
     ):
         attrib: dict[str, object] = {
-            "dapple:position": Position.RightCenter,
+            "dapple:position": position,
             "dapple:padding-left": ConfigKey("padding_std"),
             "dapple:padding-right": ConfigKey("padding_nil"),
             "dapple:padding-top": ConfigKey("padding_nil"),

@@ -10,4 +10,4 @@ from .scales import (
     colordiscrete,
 )
 from .hclust_order import HClustOrder
-from .geometry.violin import vertical_violin, horizontal_violin, violin
+from .layout import Position
