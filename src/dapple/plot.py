@@ -1,5 +1,5 @@
 from numbers import Number
-from typing import TextIO, BinaryIO, Callable, Collection, override
+from typing import TextIO, BinaryIO, Callable, Collection, override, cast
 from io import StringIO
 import numpy as np
 import sys
@@ -46,6 +46,7 @@ from .export import svg_to_png, svg_to_pdf, ExportError
 from .scales import Scale
 from .config import Config, ConfigKey, default_config
 from .layout import Position
+from .colors import Colors
 
 
 class Plot(Element):
@@ -477,6 +478,8 @@ class Plot(Element):
         dpi: int = 96,
         pixel_width: None | int = None,
         pixel_height: None | int = None,
+        background: Colors | None = None,
+        clip: bool = False,
     ) -> None | bytes:
         """
         Export plot as PNG using Inkscape.
@@ -504,6 +507,11 @@ class Plot(Element):
         svg_root.serialize(buf)
         svg_string = buf.getvalue()
 
+        background_str: str | None = None
+        if isinstance(background, Colors):
+            assert background.isscalar()
+            background_str = cast(str, background.serialize())
+
         # Convert to PNG using Inkscape
         try:
             return svg_to_png(
@@ -512,6 +520,7 @@ class Plot(Element):
                 dpi=dpi,
                 width=pixel_width,
                 height=pixel_height,
+                background=background_str,
             )
         except ExportError as e:
             print(f"Error exporting to PNG: {e}", file=sys.stderr)
