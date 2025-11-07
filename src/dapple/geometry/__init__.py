@@ -1,14 +1,15 @@
-from .points import points
-from .rasterized_points import rasterized_points
+from .bars import horizontal_bars, vertical_bars
 from .grids import xgrids, ygrids
-from .ticks import xticks, yticks
-from .labels import xlabel, ylabel, title, xticklabels, yticklabels
-from .key import key
-from .image import image
-from .rasterized_polygons import rasterized_polygons
-from .rasterized_polygon_outlines import rasterized_polygon_outlines
-from .lines import line, lines, segments, density
-from .bars import vertical_bars, horizontal_bars
-from .histogram import histogram
 from .heatmap import heatmap
-from .violin import vertical_violin, horizontal_violin, violin
+from .histogram import histogram
+from .image import image
+from .key import key
+from .labels import title, xlabel, xticklabels, ylabel, yticklabels
+from .lines import density, line, lines, segments
+from .points import points
+from .rasterized_heatmap import rasterized_heatmap
+from .rasterized_points import rasterized_points
+from .rasterized_polygon_outlines import rasterized_polygon_outlines
+from .rasterized_polygons import rasterized_polygons
+from .ticks import xticks, yticks
+from .violin import horizontal_violin, vertical_violin, violin

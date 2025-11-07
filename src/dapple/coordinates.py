@@ -1,25 +1,27 @@
 from __future__ import annotations
 
+import sys
 from abc import ABC, abstractmethod
+from asyncio.events import AbstractEventLoopPolicy
 from dataclasses import dataclass
 from decimal import Overflow
 from enum import Enum
 from functools import singledispatch
-from numpy.typing import NDArray
 from numbers import Real
 from typing import (
-    Any,
-    TypeAlias,
-    Tuple,
-    Optional,
-    NamedTuple,
     TYPE_CHECKING,
-    override,
+    Any,
+    NamedTuple,
+    Optional,
+    Tuple,
+    TypeAlias,
     cast,
+    override,
 )
-from scipy.optimize import linprog
+
 import numpy as np
-import sys
+from numpy.typing import NDArray
+from scipy.optimize import linprog
 
 if TYPE_CHECKING:
     from .occupancy import Occupancy
@@ -75,6 +77,11 @@ class Lengths(Resolvable, ABC):
 
     @abstractmethod
     def __getitem__(self, idx: int) -> Lengths:
+        pass
+
+    @override
+    @abstractmethod
+    def resolve(self, ctx: ResolveContext) -> AbsLengths:
         pass
 
     def __iter__(self):

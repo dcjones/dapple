@@ -413,7 +413,7 @@ class Plot(Element):
         height: AbsLengths | Number,
         output: None | str | Path | TextIO = None,
         clip: bool = False,
-    ):
+    ) -> Element:
         """
         Given an absolute plot size, resolve the the plot into a pure SVG.
         """

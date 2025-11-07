@@ -1,7 +1,8 @@
+import threading
+from typing import Optional, Tuple
+
 import moderngl
 import numpy as np
-from typing import Optional, Tuple
-import threading
 
 
 class ModernGLContext:
@@ -475,6 +476,162 @@ def render_lines_to_texture(
 
     # Readback
     data = np.frombuffer(texture.read(), dtype=np.uint8).reshape((height, width, 4))
+    data = np.flip(data, axis=0)
+
+    # Cleanup
+    vao.release()
+    vbo.release()
+    program.release()
+    framebuffer.release()
+    texture.release()
+
+    return data
+
+
+def render_rectangles_to_texture(
+    x: np.ndarray,
+    y: np.ndarray,
+    widths: np.ndarray,
+    heights: np.ndarray,
+    colors: Optional[np.ndarray] = None,
+    width: int = 1024,
+    height: int = 1024,
+    x_range: Tuple[float, float] = (0.0, 1.0),
+    y_range: Tuple[float, float] = (0.0, 1.0),
+    background_color: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
+) -> np.ndarray:
+    """
+    Render filled rectangles to a texture using ModernGL.
+
+    Args:
+        x: X positions of rectangle left edges
+        y: Y positions of rectangle bottom edges
+        widths: Widths of rectangles
+        heights: Heights of rectangles
+        colors: Optional per-rectangle colors as (R, 4) or (R, 3) array
+        width: Texture width in pixels
+        height: Texture height in pixels
+        x_range: (min, max) range for x coordinates
+        y_range: (min, max) range for y coordinates
+        background_color: Background color as (r, g, b, a) tuple
+
+    Returns:
+        RGBA texture data as numpy array with shape (height, width, 4)
+    """
+    ctx = ModernGLContext().get_context()
+
+    # Validate inputs
+    x = np.asarray(x, dtype=np.float32)
+    y = np.asarray(y, dtype=np.float32)
+    widths = np.asarray(widths, dtype=np.float32)
+    heights = np.asarray(heights, dtype=np.float32)
+
+    if not (x.shape == y.shape == widths.shape == heights.shape):
+        raise ValueError("x, y, widths, and heights must have the same shape")
+
+    R = len(x)
+    if R == 0:
+        # Return empty transparent image
+        framebuffer, texture = create_framebuffer(width, height)
+        framebuffer.use()
+        framebuffer.clear(*background_color)
+        data = np.frombuffer(texture.read(), dtype=np.uint8).reshape((height, width, 4))
+        data = np.flip(data, axis=0)
+        framebuffer.release()
+        texture.release()
+        return data
+
+    # Normalize coordinates to NDC [-1, 1]
+    x0, x1 = float(x_range[0]), float(x_range[1])
+    y0, y1 = float(y_range[0]), float(y_range[1])
+
+    # Avoid division by zero
+    xr = x1 - x0 if (x1 - x0) != 0 else 1.0
+    yr = y1 - y0 if (y1 - y0) != 0 else 1.0
+
+    # Calculate rectangle corners in NDC
+    # Each rectangle: (x, y) is bottom-left, width/height extend right/up
+    x_left = 2.0 * (x - x0) / xr - 1.0
+    x_right = 2.0 * (x + widths - x0) / xr - 1.0
+    y_bottom = 2.0 * (y - y0) / yr - 1.0
+    y_top = 2.0 * (y + heights - y0) / yr - 1.0
+
+    # Build triangles for each rectangle (2 triangles per rect = 6 vertices)
+    # Triangle 1: bottom-left, bottom-right, top-right
+    # Triangle 2: bottom-left, top-right, top-left
+    verts = []
+    for i in range(R):
+        v0 = [x_left[i], y_bottom[i]]  # bottom-left
+        v1 = [x_right[i], y_bottom[i]]  # bottom-right
+        v2 = [x_right[i], y_top[i]]  # top-right
+        v3 = [x_left[i], y_top[i]]  # top-left
+
+        # Two triangles
+        verts.append([v0, v1, v2])  # tri 1
+        verts.append([v0, v2, v3])  # tri 2
+
+    verts_ndc = np.concatenate(verts, axis=0).astype(np.float32)  # (R*6, 2)
+
+    # Handle colors
+    if colors is None:
+        cols = np.ones((R, 4), dtype=np.float32)
+    else:
+        cols = np.asarray(colors, dtype=np.float32)
+        if cols.ndim == 1:
+            cols = np.tile(cols[None, ...], (R, 1))
+        if cols.shape[-1] == 3:
+            alpha = np.ones((cols.shape[0], 1), dtype=np.float32)
+            cols = np.concatenate([cols, alpha], axis=1)
+        if cols.shape[0] != R:
+            raise ValueError("colors must provide one color per rectangle")
+        cols = cols.astype(np.float32)
+
+    # Expand per-rectangle color to per-vertex (6 vertices per rectangle)
+    cols_per_vertex = (
+        np.repeat(cols[:, None, :], 6, axis=1).reshape((-1, 4)).astype(np.float32)
+    )
+
+    # Interleave position and color
+    vertex_data = np.column_stack([verts_ndc, cols_per_vertex]).astype(np.float32)
+
+    # Create framebuffer and GL resources
+    framebuffer, texture = create_framebuffer(width, height)
+    vbo = ctx.buffer(vertex_data.tobytes())
+
+    vertex_shader = """
+    #version 330
+    in vec2 in_position;
+    in vec4 in_color;
+    out vec4 v_color;
+    void main() {
+        gl_Position = vec4(in_position, 0.0, 1.0);
+        v_color = in_color;
+    }
+    """
+
+    fragment_shader = """
+    #version 330
+    in vec4 v_color;
+    out vec4 fragColor;
+    void main() {
+        fragColor = v_color;
+    }
+    """
+
+    program = ctx.program(vertex_shader=vertex_shader, fragment_shader=fragment_shader)
+    vao = ctx.vertex_array(program, [(vbo, "2f 4f", "in_position", "in_color")])
+
+    # Render
+    framebuffer.use()
+    framebuffer.clear(*background_color)
+    ctx.enable(moderngl.BLEND)
+    ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA)
+
+    vao.render(mode=moderngl.TRIANGLES)
+
+    # Read back texture data
+    texture_data = texture.read()
+    data = np.frombuffer(texture_data, dtype=np.uint8).reshape((height, width, 4))
     data = np.flip(data, axis=0)
 
     # Cleanup

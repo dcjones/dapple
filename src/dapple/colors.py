@@ -1,16 +1,17 @@
-from cmap import Color, Colormap
+from dataclasses import dataclass
+from functools import singledispatch
+from typing import Optional, Sequence, cast
 
+import numpy as np
 from basic_colormath import (
+    get_delta_e_matrix,
+    get_delta_e_matrix_lab,
     rgb_to_lab,
     rgbs_to_lab,
-    get_delta_e_matrix_lab,
-    get_delta_e_matrix,
 )
-import numpy as np
+from cmap import Color, Colormap
 from numpy.typing import NDArray
-from functools import singledispatch
-from dataclasses import dataclass
-from typing import Sequence, Optional, cast
+
 from .coordinates import Serializable
 
 
@@ -21,6 +22,13 @@ class Colors(Serializable):
 
     def __len__(self) -> int:
         return self.values.shape[0]
+
+    def __getitem__(self, key) -> "Colors":
+        if isinstance(key, (np.ndarray, list)):
+            return Colors(self.values[key])
+        return Colors(
+            self.values[key : key + 1] if isinstance(key, int) else self.values[key]
+        )
 
     def isscalar(self) -> bool:
         return self.values.shape[0] == 1
