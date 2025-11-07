@@ -1,15 +1,38 @@
 
+# Dapple
 
+This in an experimental python plotting package that's in active development. At
+this point it's a just personal side project, but one I am actively dogfooding.
+There are two major goals:
 
+  1. Build on ideas I figured out writing
+     [Gadfly](https://github.com/GiovineItalia/Gadfly.jl) (and another Julia
+     plotting library which I wrote and used, but never released.)
+  2. Experiment with LLM agents to accelerate implementation of specific features.
 
-# Font discovery
+# Design
 
-Exact layout required being able to compute precise text extents. There are few system dapple uses try to locate the correct font, in order of robustness:
+You can think of dapple as a compiler that compiles a superset of SVG down to
+normal, standards compliant SVG. The core idea is that plots are declared as if
+they were an SVG document. With elements representing plot geometry attached at
+will. This allows the freedom of reusing parts of the plot, and not having to
+set up an output target in advance.
 
-1. **fontconfig** (Linux/Unix) - The standard font configuration system on Linux
-2. **fc-list command** (Linux/Unix) - Falls back to the fontconfig command-line tool
-3. **matplotlib FontManager** (All platforms) - Cross-platform font discovery
-4. **Directory scanning** (All platforms) - Scans platform-specific font directories
+In addition to defining custom elements as needed, we add to SVG a sophisticated
+coordinate system that's solved using linear programming once the plot is rendered.
 
+# Features
 
-**fontconfig** and **manplotlib** are both optional dependencies, that are recommended for best results.
+A lot of what I prioritize implementing are features that help with precise
+layout and typography and those that are useful in my work.
+
+  * Font discovery and extents calculations.
+  * Optional GPU rasterization of points, polygons, and such.
+  * Support for many color schemes and optimally distinguishable discrete color scales.
+
+Not yet implemented, but high priority.
+  * Subplots
+  * Point size scales.
+  * Non-linear scales
+  * Fancier label formatting
+  * Label placement optimization
