@@ -1,6 +1,7 @@
 import io
 
 import dapple as dpl
+from dapple.geometry import horizontal_violin, vertical_violin
 
 
 def _render_svg(element) -> str:
@@ -18,7 +19,7 @@ def test_vertical_violin_svg_with_categorical_groups():
     x = ["A", "A", "B", "B", "B", "C", "C"]
     y = [1.0, 1.5, 2.2, 2.0, 1.9, 0.7, 0.9]
 
-    svg = _render_svg(dpl.vertical_violin(x=x, y=y))
+    svg = _render_svg(vertical_violin(x=x, y=y))
 
     # Basic sanity checks on the SVG
     assert "<svg" in svg
@@ -33,7 +34,7 @@ def test_horizontal_violin_svg_with_categorical_groups():
     y = ["K", "K", "L", "L", "M", "M"]
     x = [2.1, 1.7, 3.0, 2.8, 1.3, 2.5]
 
-    svg = _render_svg(dpl.horizontal_violin(x=x, y=y))
+    svg = _render_svg(horizontal_violin(x=x, y=y))
 
     # Basic sanity checks on the SVG
     assert "<svg" in svg

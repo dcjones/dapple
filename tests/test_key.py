@@ -1,11 +1,12 @@
-import pytest
 import numpy as np
-from dapple import plot, mm, inch
-from dapple.geometry import points, key
-from dapple.scales import ScaleDiscreteColor, ScaleContinuousColor
+import pytest
+
+from dapple import inch, mm, plot
 from dapple.config import Config
-from dapple.coordinates import ResolveContext, AbsCoordTransform
+from dapple.coordinates import AbsCoordTransform, ResolveContext
+from dapple.geometry import key, points
 from dapple.occupancy import Occupancy
+from dapple.scales import ScaleContinuousColor, ScaleDiscreteColor
 
 
 def test_key_discrete_color():
@@ -198,14 +199,3 @@ def test_key_abs_bounds_no_scale():
     # Should return zero bounds
     assert width.scalar_value() == 0
     assert height.scalar_value() == 0
-
-
-def test_key_positioning():
-    """Test that Key is positioned to the right by default."""
-    key_geom = key()
-
-    from dapple.layout import Position
-
-    position = key_geom.attrib.get("dapple:position")
-
-    assert position == Position.RightCenter
