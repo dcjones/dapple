@@ -2,6 +2,7 @@ from .bars import horizontal_bars, vertical_bars
 from .grids import xgrids, ygrids
 from .heatmap import heatmap
 from .histogram import histogram
+from .histogram2d import histogram2d
 from .image import image
 from .key import key
 from .labels import title, xlabel, xticklabels, ylabel, yticklabels
