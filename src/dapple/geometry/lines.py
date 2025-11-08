@@ -1,21 +1,21 @@
-import numpy as np
-from collections.abc import Callable, Iterable
-from typing import Any, override
-from numbers import Number
-import numpy as np
 from collections import defaultdict
+from collections.abc import Callable, Iterable
+from numbers import Number
+from typing import Any, override
 
-from ..elements import Element, Path, PathData, VectorizedElement
-from ..scales import length_params, color_params, UnscaledValues
+import numpy as np
+
+from ..config import ConfigKey
 from ..coordinates import (
-    CtxLenType,
     AbsLengths,
+    CtxLenType,
     Lengths,
-    Serializable,
     ResolveContext,
+    Serializable,
     resolve,
 )
-from ..config import ConfigKey
+from ..elements import Element, Path, PathData, VectorizedElement
+from ..scales import UnscaledValues, color_params, length_params
 
 
 def _adaptive_sample_function(
@@ -75,7 +75,14 @@ def _sample_function(func: Callable, xmin: float, xmax: float) -> tuple[Any, Any
     return x_vals.tolist(), y_vals.tolist()
 
 
-def line(x=None, y=None, color=ConfigKey("linecolor"), xmin=None, xmax=None):
+def line(
+    x=None,
+    y=None,
+    color=ConfigKey("linecolor"),
+    width=ConfigKey("linestroke"),
+    xmin=None,
+    xmax=None,
+):
     """
     Plot a single line.
 
@@ -106,12 +113,18 @@ def line(x=None, y=None, color=ConfigKey("linecolor"), xmin=None, xmax=None):
         length_params("y", y_data, CtxLenType.Pos),
         stroke=color_params("color", color),
         fill="none",
-        **{"stroke-width": ConfigKey("linestroke")},
+        **{"stroke-width": width},
     )
 
 
 def lines(
-    x=None, y=None, color=ConfigKey("linecolor"), group=None, xmin=None, xmax=None
+    x=None,
+    y=None,
+    color=ConfigKey("linecolor"),
+    width=ConfigKey("linestroke"),
+    group=None,
+    xmin=None,
+    xmax=None,
 ):
     """
     Plot lines with support for multiple patterns.
@@ -131,6 +144,10 @@ def lines(
         - When neither is provided, creates a single line
     """
 
+    assert isinstance(width, (ConfigKey, Lengths))
+    if isinstance(width, Lengths):
+        assert width.isscalar()
+
     # Function plotting
     if x is None or xmin is not None:
         if xmin is None or xmax is None:
@@ -148,16 +165,16 @@ def lines(
             length_params("y", y_data, CtxLenType.Pos),
             stroke=color_params("color", color),
             fill="none",
-            **{"stroke-width": ConfigKey("linestroke")},
+            **{"stroke-width": width},
         )
 
     # Multiple lines with grouping (by group, color, or both)
     elif group is not None or _has_multiple_values(color):
-        return _create_grouped_paths(x, y, color, group)
+        return _create_grouped_paths(x, y, color, group, width)
 
     # Single line (same as line() function)
     else:
-        return line(x, y, color)
+        return line(x, y, color, width)
 
 
 def segments(x1, y1, x2, y2, color=ConfigKey("linecolor")) -> Element:
@@ -175,7 +192,13 @@ def segments(x1, y1, x2, y2, color=ConfigKey("linecolor")) -> Element:
 
 
 def density(
-    x, color=ConfigKey("linecolor"), bw_method=None, weights=None, xmin=None, xmax=None
+    x,
+    color=ConfigKey("linecolor"),
+    bw_method=None,
+    weights=None,
+    xmin=None,
+    xmax=None,
+    width=ConfigKey("linestroke"),
 ):
     """
     Plot a kernel density estimate.
@@ -215,7 +238,7 @@ def density(
 
     # The adaptive sampler expects a function that returns a scalar, but kde
     # returns an array.
-    return line(y=lambda v: kde(v)[0], xmin=xmin, xmax=xmax, color=color)
+    return line(y=lambda v: kde(v)[0], xmin=xmin, xmax=xmax, color=color, width=width)
 
 
 def _has_multiple_values(color) -> bool:
@@ -230,7 +253,7 @@ def _has_multiple_values(color) -> bool:
     return False
 
 
-def _create_grouped_paths(x, y, color, group):
+def _create_grouped_paths(x, y, color, group, width):
     """
     Create multiple Path elements by grouping input data before scaling.
 
@@ -300,7 +323,7 @@ def _create_grouped_paths(x, y, color, group):
             length_params("y", group_data["y"], CtxLenType.Pos),
             stroke=color_params("color", group_data["color"]),
             fill="none",
-            **{"stroke-width": ConfigKey("linestroke")},
+            **{"stroke-width": width},
         )
     else:
         # Multiple groups - return container with Path children
@@ -315,7 +338,7 @@ def _create_grouped_paths(x, y, color, group):
                 length_params("y", group_data["y"], CtxLenType.Pos),
                 stroke=color_params("color", group_data["color"]),
                 fill="none",
-                **{"stroke-width": ConfigKey("linestroke")},
+                **{"stroke-width": width},
             )
 
             container.children.append(path)
