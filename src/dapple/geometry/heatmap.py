@@ -151,7 +151,9 @@ class Heatmap(Element):
                 )
                 self.attrib["mask"] = (x_grid != y_grid).flatten()
             if col_positions is not None and row_positions is not None:
-                col_grid, row_grid = np.meshgrid(col_positions, row_positions)
+                col_grid, row_grid = np.meshgrid(
+                    col_positions.values, row_positions.values
+                )
                 self.attrib["mask"] = (col_grid != row_grid).flatten()
             else:
                 raise ValueError("Cannot exclude diagonal for pre-scaled positions")
