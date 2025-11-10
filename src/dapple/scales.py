@@ -1,18 +1,20 @@
 from __future__ import annotations
 
-from .colors import Colors
-from .coordinates import Lengths, AbsLengths, CtxLengths, CtxLenType
-from .config import ConfigKey, ChooseTicksParams
+import operator
 from abc import ABC, abstractmethod
-from cmap import Colormap, ColormapLike
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
-from numpy.typing import NDArray
-from typing import Any, TypeAlias, override, NamedTuple, cast, Callable
-from collections.abc import Mapping, Sequence, Iterable
 from numbers import Number
+from typing import Any, Callable, NamedTuple, TypeAlias, cast, override
+
 import numpy as np
-import operator
+from cmap import Colormap, ColormapLike
+from numpy.typing import NDArray
+
+from .colors import Colors
+from .config import ChooseTicksParams, ConfigKey
+from .coordinates import AbsLengths, CtxLengths, CtxLenType, Lengths
 
 
 class UnscaledExpr(ABC):
@@ -64,6 +66,9 @@ class UnscaledValues(UnscaledExpr):
         self.unit = unit
         self.values = values
         self.typ = typ
+
+    def __len__(self) -> int:
+        return len(self.values)
 
     @override
     def accept_fit(self, scaleset: ScaleSet) -> None:
@@ -245,6 +250,9 @@ class UnscaledBinaryOp(UnscaledExpr):
     a: UnscaledExpr | Lengths
     b: UnscaledExpr | Lengths
     op: Callable[..., Any]
+
+    def __len__(self) -> int:
+        return max(len(self.a), len(self.b))
 
     @override
     def accept_fit(self, scaleset: ScaleSet) -> None:

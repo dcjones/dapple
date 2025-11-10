@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+from typing import Any, Iterable, override
+
 import numpy as np
-from typing import Any, Iterable
 from numpy.typing import ArrayLike
 
-from ..coordinates import CtxLenType, cxv, cyv, Lengths
-from ..scales import color_params, UnscaledValues
-from .bars import Bar
+from ..colors import Colors
 from ..config import ConfigKey
+from ..coordinates import CoordBounds, CtxLenType, Lengths, ResolveContext, cxv, cyv, mm
+from ..elements import Element
+from ..scales import (
+    UnscaledBinaryOp,
+    UnscaledExpr,
+    UnscaledValues,
+    color_params,
+    length_params,
+)
+from .bars import Bar
 
 
 def _ensure_1d_positions(values: Iterable[Any], expected_len: int, axis_name: str):
@@ -43,12 +52,174 @@ def _default_positions(n: int) -> np.ndarray:
     return np.arange(n, dtype=np.float64)
 
 
+class Heatmap(Element):
+    def __init__(
+        self,
+        color: ArrayLike,
+        x: Iterable[Any] | None = None,
+        y: Iterable[Any] | None = None,
+        x0: Iterable[Any] | None = None,
+        x1: Iterable[Any] | None = None,
+        y0: Iterable[Any] | None = None,
+        y1: Iterable[Any] | None = None,
+        exclude_diagonal: bool = False,
+    ):
+        super().__init__("dapple:heatmap")
+
+        color_array = np.asarray(color)
+        if color_array.ndim != 2:
+            raise ValueError("color must be a 2D matrix")
+
+        n_rows, n_cols = tuple(map(int, color_array.shape))
+
+        x0_lens: Lengths | UnscaledExpr
+        x1_lens: Lengths | UnscaledExpr
+        col_positions = None
+        if x0 is not None and x1 is not None:
+            if x is not None:
+                raise ValueError("x cannot be specified when x0 and x1 are provided")
+            x0_lens_ = length_params("x", x0, CtxLenType.Pos)
+            assert isinstance(x0_lens_, (Lengths, UnscaledValues))
+            x1_lens_ = length_params("x", x1, CtxLenType.Pos)
+            assert isinstance(x1_lens_, (Lengths, UnscaledValues))
+            x0_lens = x0_lens_
+            x1_lens = x1_lens_
+        elif x is not None:
+            if x0 is not None or x1 is not None:
+                raise ValueError("x0 and x1 cannot be specified when x is provided")
+            col_positions = length_params("x", x, CtxLenType.Pos)
+            assert isinstance(col_positions, (Lengths, UnscaledValues))
+            x0_lens = col_positions - 0.5 * cxv
+            x1_lens = col_positions + 0.5 * cxv
+        else:
+            col_positions = length_params("x", np.arange(n_cols), CtxLenType.Pos)
+            assert isinstance(col_positions, (Lengths, UnscaledValues))
+            x0_lens = col_positions - 0.5 * cxv
+            x1_lens = col_positions + 0.5 * cxv
+
+        y0_lens: Lengths | UnscaledExpr
+        y1_lens: Lengths | UnscaledExpr
+        row_positions = None
+        if y0 is not None and y1 is not None:
+            if y is not None:
+                raise ValueError("y cannot be specified when y0 and y1 are provided")
+            y0_lens_ = length_params("y", y0, CtxLenType.Pos)
+            assert isinstance(y0_lens_, (Lengths, UnscaledValues))
+            y1_lens_ = length_params("y", y1, CtxLenType.Pos)
+            assert isinstance(y1_lens_, (Lengths, UnscaledValues))
+            y0_lens = y0_lens_
+            y1_lens = y1_lens_
+        elif y is not None:
+            if y0 is not None or y1 is not None:
+                raise ValueError("y0 and y1 cannot be specified when y is provided")
+            row_positions = length_params("y", y, CtxLenType.Pos)
+            assert isinstance(row_positions, (Lengths, UnscaledValues))
+            y0_lens = row_positions - 0.5 * cyv
+            y1_lens = row_positions + 0.5 * cyv
+        else:
+            row_positions = length_params("y", np.arange(n_rows), CtxLenType.Pos)
+            assert isinstance(row_positions, (Lengths, UnscaledValues))
+            y0_lens = row_positions - 0.5 * cyv
+            y1_lens = row_positions + 0.5 * cyv
+
+        if len(x0_lens) != n_cols or len(x1_lens) != n_cols:
+            raise ValueError(
+                "x arguments must have the same length as the number of columns"
+            )
+
+        if len(y0_lens) != n_rows or len(y1_lens) != n_rows:
+            raise ValueError(
+                "y arguments must have the same length as the number of rows"
+            )
+
+        self.attrib = {
+            "exclude_diagonal": exclude_diagonal,
+            "x0": x0_lens,
+            "x1": x1_lens,
+            "y0": y0_lens,
+            "y1": y1_lens,
+            "fill": color_params("color", color_array.reshape(-1)),
+            "dapple:nudge": ConfigKey("heatmap_nudge"),
+        }
+
+        if exclude_diagonal:
+            if isinstance(x0_lens, UnscaledValues) and isinstance(
+                y0_lens, UnscaledValues
+            ):
+                x_grid, y_grid = np.meshgrid(
+                    np.asarray(x0_lens.values), np.asarray(y0_lens.values)
+                )
+                self.attrib["mask"] = (x_grid != y_grid).flatten()
+            if col_positions is not None and row_positions is not None:
+                col_grid, row_grid = np.meshgrid(col_positions, row_positions)
+                self.attrib["mask"] = (col_grid != row_grid).flatten()
+            else:
+                raise ValueError("Cannot exclude diagonal for pre-scaled positions")
+
+    @override
+    def update_bounds(self, bounds: CoordBounds):
+        bounds.update(self.get_as("x0", Lengths))
+        bounds.update(self.get_as("x1", Lengths))
+        bounds.update(self.get_as("y0", Lengths))
+        bounds.update(self.get_as("y1", Lengths))
+
+    @override
+    def resolve(self, ctx: ResolveContext) -> Element:
+        x0 = self.get_as("x0", Lengths).resolve(ctx).values
+        x1 = self.get_as("x1", Lengths).resolve(ctx).values
+        y0 = self.get_as("y0", Lengths).resolve(ctx).values
+        y1 = self.get_as("y1", Lengths).resolve(ctx).values
+
+        assert len(x0) == len(x1) and len(y0) == len(y1)
+        nrows = len(y0)
+        ncols = len(x0)
+
+        fill = self.get_as("fill", Colors)
+        assert nrows * ncols == len(fill)
+
+        (x0_grid, y0_grid) = np.meshgrid(x0, y0)
+        (x1_grid, y1_grid) = np.meshgrid(x1, y1)
+
+        x0 = x0_grid.flatten()
+        x1 = x1_grid.flatten()
+        y0 = y0_grid.flatten()
+        y1 = y1_grid.flatten()
+
+        if "mask" in self.attrib:
+            mask = self.get_as("mask", np.ndarray)
+            x0 = x0[mask]
+            x1 = x1[mask]
+            y0 = y0[mask]
+            y1 = y1[mask]
+            fill = fill[mask]
+
+        nudge = self.get_as("dapple:nudge", Lengths)
+
+        return Bar(
+            mm(x0),
+            mm(y0),
+            x1=mm(x1),
+            y1=mm(y1),
+            fill=fill,
+            nudge=None,
+            stroke="none",
+            **{
+                "shape-rendering": "crispEdges",
+                "dapple:nudge": nudge.resolve(ctx),
+            },
+        ).resolve(ctx)
+
+
 def heatmap(
     color: ArrayLike,
     x: Iterable[Any] | None = None,
     y: Iterable[Any] | None = None,
+    x0: Iterable[Any] | None = None,
+    x1: Iterable[Any] | None = None,
+    y0: Iterable[Any] | None = None,
+    y1: Iterable[Any] | None = None,
     exclude_diagonal: bool = False,
-) -> Bar:
+) -> Heatmap:
     """
     Draw colored squares from a matrix of values.
 
@@ -61,45 +232,7 @@ def heatmap(
     Returns:
         VectorizedElement containing the heatmap geometry.
     """
-    color_array = np.asarray(color)
-    if color_array.ndim != 2:
-        raise ValueError("color must be a 2D matrix")
 
-    n_rows, n_cols = color_array.shape
-
-    x_centers = (
-        _default_positions(n_cols).tolist()
-        if x is None
-        else _ensure_1d_positions(x, n_cols, "x")
-    )
-    y_centers = (
-        _default_positions(n_rows).tolist()
-        if y is None
-        else _ensure_1d_positions(y, n_rows, "y")
-    )
-
-    x_centers_flat = [x_centers[col] for _row in range(n_rows) for col in range(n_cols)]
-    y_centers_flat = [y_centers[row] for row in range(n_rows) for _col in range(n_cols)]
-    color_vals = color_array.reshape(-1)
-
-    if exclude_diagonal:
-        row_indices = np.repeat(np.arange(n_rows, dtype=np.int64), n_cols)
-        col_indices = np.tile(np.arange(n_cols, dtype=np.int64), n_rows)
-        mask = row_indices != col_indices
-
-        x_centers_flat = [val for val, keep in zip(x_centers_flat, mask) if keep]
-        y_centers_flat = [val for val, keep in zip(y_centers_flat, mask) if keep]
-        color_vals = color_vals[mask]
-
-    x_centers_expr = UnscaledValues("x", x_centers_flat, CtxLenType.Pos)
-    y_centers_expr = UnscaledValues("y", y_centers_flat, CtxLenType.Pos)
-
-    return Bar(
-        x=x_centers_expr - cxv(0.5),
-        y=y_centers_expr - cyv(0.5),
-        width=cxv(1.0),
-        height=cyv(1.0),
-        fill=color_params("color", color_vals),
-        stroke="none",
-        **{"shape-rendering": "crispEdges", "dapple:nudge": ConfigKey("heatmap_nudge")},
+    return Heatmap(
+        color, x=x, y=y, x0=x0, x1=x1, y0=y0, y1=y1, exclude_diagonal=exclude_diagonal
     )

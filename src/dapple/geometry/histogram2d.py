@@ -88,8 +88,11 @@ def histogram2d(
         bins=[bins_x, bins_y],
     )
 
-    x_centers = 0.5 * (x_edges[:-1] + x_edges[1:])
-    y_centers = 0.5 * (y_edges[:-1] + y_edges[1:])
+    x0 = x_edges[0:-1]
+    x1 = x_edges[1:]
+
+    y0 = y_edges[0:-1]
+    y1 = y_edges[1:]
 
     geometry_fn = rasterized_heatmap if rasterize else heatmap
-    return geometry_fn(counts.T, x=x_centers, y=y_centers)
+    return geometry_fn(counts.T, x0=x0, x1=x1, y0=y0, y1=y1)

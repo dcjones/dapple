@@ -1,13 +1,14 @@
-from .plot import plot
 from .colors import color
-from .coordinates import mm, cm, pt, inch, cx, cxv, cy, cyv, vw, vwv, vh, vhv
-from .scales import (
-    ycontinuous,
-    ydiscrete,
-    xcontinuous,
-    xdiscrete,
-    colorcontinuous,
-    colordiscrete,
-)
+from .coordinates import cm, cx, cxv, cy, cyv, inch, mm, pt, vh, vhv, vw, vwv
+from .elements import pad
 from .hclust_order import HClustOrder
 from .layout import Position
+from .plot import plot
+from .scales import (
+    colorcontinuous,
+    colordiscrete,
+    xcontinuous,
+    xdiscrete,
+    ycontinuous,
+    ydiscrete,
+)

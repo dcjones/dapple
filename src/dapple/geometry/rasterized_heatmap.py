@@ -14,11 +14,15 @@ from ..coordinates import (
     cxv,
     cyv,
     mm,
-    resolve,
 )
 from ..elements import Element
 from ..moderngl_utils import calculate_dpi_size, render_rectangles_to_texture
-from ..scales import UnscaledValues, color_params, length_params
+from ..scales import (
+    UnscaledExpr,
+    UnscaledValues,
+    color_params,
+    length_params,
+)
 from .image import ImageElement
 
 
@@ -28,6 +32,10 @@ class RasterizedHeatmap(Element):
         color: ArrayLike,
         x: Iterable[Any] | None = None,
         y: Iterable[Any] | None = None,
+        x0: Iterable[Any] | None = None,
+        x1: Iterable[Any] | None = None,
+        y0: Iterable[Any] | None = None,
+        y1: Iterable[Any] | None = None,
         exclude_diagonal: bool = False,
         dpi=ConfigKey("rasterize_dpi"),
     ):
@@ -37,47 +45,89 @@ class RasterizedHeatmap(Element):
         if color_array.ndim != 2:
             raise ValueError("color must be a 2D matrix")
 
-        n_rows, n_cols = color_array.shape
+        n_rows, n_cols = tuple(map(int, color_array.shape))
 
-        col_positions = (
-            length_params("x", np.arange(n_cols), CtxLenType.Pos)
-            if x is None
-            else length_params("x", x, CtxLenType.Pos)
-        )
-        assert isinstance(col_positions, Lengths) or isinstance(
-            col_positions, UnscaledValues
-        )
+        x0_lens: Lengths | UnscaledExpr
+        x1_lens: Lengths | UnscaledExpr
+        if x0 is not None and x1 is not None:
+            if x is not None:
+                raise ValueError("x cannot be specified when x0 and x1 are provided")
+            x0_lens_ = length_params("x", x0, CtxLenType.Pos)
+            assert isinstance(x0_lens_, (Lengths, UnscaledValues))
+            x1_lens_ = length_params("x", x1, CtxLenType.Pos)
+            assert isinstance(x1_lens_, (Lengths, UnscaledValues))
+            x0_lens = x0_lens_
+            x1_lens = x1_lens_
+        elif x is not None:
+            if x0 is not None or x1 is not None:
+                raise ValueError("x0 and x1 cannot be specified when x is provided")
+            col_positions = length_params("x", x, CtxLenType.Pos)
+            assert isinstance(col_positions, (Lengths, UnscaledValues))
+            x0_lens = col_positions - 0.5 * cxv
+            x1_lens = col_positions + 0.5 * cxv
+        else:
+            col_positions = length_params("x", np.arange(n_cols), CtxLenType.Pos)
+            assert isinstance(col_positions, (Lengths, UnscaledValues))
+            x0_lens = col_positions - 0.5 * cxv
+            x1_lens = col_positions + 0.5 * cxv
 
-        row_positions = (
-            length_params("y", np.arange(n_rows), CtxLenType.Pos)
-            if y is None
-            else length_params("y", y, CtxLenType.Pos)
-        )
-        assert isinstance(row_positions, Lengths) or isinstance(
-            row_positions, UnscaledValues
-        )
+        y0_lens: Lengths | UnscaledExpr
+        y1_lens: Lengths | UnscaledExpr
+        if y0 is not None and y1 is not None:
+            if y is not None:
+                raise ValueError("y cannot be specified when y0 and y1 are provided")
+            y0_lens_ = length_params("y", y0, CtxLenType.Pos)
+            assert isinstance(y0_lens_, (Lengths, UnscaledValues))
+            y1_lens_ = length_params("y", y1, CtxLenType.Pos)
+            assert isinstance(y1_lens_, (Lengths, UnscaledValues))
+            y0_lens = y0_lens_
+            y1_lens = y1_lens_
+        elif y is not None:
+            if y0 is not None or y1 is not None:
+                raise ValueError("y0 and y1 cannot be specified when y is provided")
+            row_positions = length_params("y", y, CtxLenType.Pos)
+            assert isinstance(row_positions, (Lengths, UnscaledValues))
+            y0_lens = row_positions - 0.5 * cyv
+            y1_lens = row_positions + 0.5 * cyv
+        else:
+            row_positions = length_params("y", np.arange(n_rows), CtxLenType.Pos)
+            assert isinstance(row_positions, (Lengths, UnscaledValues))
+            y0_lens = row_positions - 0.5 * cyv
+            y1_lens = row_positions + 0.5 * cyv
+
+        if len(x0_lens) != n_cols or len(x1_lens) != n_cols:
+            raise ValueError(
+                "x arguments must have the same length as the number of columns"
+            )
+
+        if len(y0_lens) != n_rows or len(y1_lens) != n_rows:
+            raise ValueError(
+                "y arguments must have the same length as the number of rows"
+            )
 
         self.attrib = {
             "exclude_diagonal": exclude_diagonal,
-            "x0": col_positions - 0.5 * cxv,
-            "x1": col_positions + 0.5 * cxv,
-            "y0": row_positions - 0.5 * cyv,
-            "y1": row_positions + 0.5 * cyv,
+            "x0": x0_lens,
+            "x1": x1_lens,
+            "y0": y0_lens,
+            "y1": y1_lens,
             "fill": color_params("color", color_array.reshape(-1)),
             "dpi": dpi,
         }
 
         if exclude_diagonal:
-            if not isinstance(col_positions, UnscaledValues) or not isinstance(
-                row_positions, UnscaledValues
+            if isinstance(x0_lens, UnscaledValues) and isinstance(
+                y0_lens, UnscaledValues
             ):
-                raise ValueError("Cannot exclude diagonal for per-scaled positions")
-
-            x, y = np.meshgrid(
-                np.asarray(col_positions.values), np.asarray(row_positions.values)
-            )
-
-            self.attrib["mask"] = (x != y).flatten()
+                x_grid, y_grid = np.meshgrid(
+                    np.asarray(x0_lens.values), np.asarray(y0_lens.values)
+                )
+                self.attrib["mask"] = (x_grid != y_grid).flatten()
+            if col_positions is not None and row_positions is not None:
+                col_grid, row_grid = np.meshgrid(col_positions, row_positions)
+                self.attrib["mask"] = (col_grid != row_grid).flatten()
+            else:
+                raise ValueError("Cannot exclude diagonal for pre-scaled positions")
 
     @override
     def update_bounds(self, bounds: CoordBounds):
@@ -168,13 +218,17 @@ class RasterizedHeatmap(Element):
 
         return image_elem.resolve(ctx)
 
-        # TODO: Ok, have to figure out how to rasterize rects with moderngl
-
 
 def rasterized_heatmap(
     color: ArrayLike,
     x: Iterable[Any] | None = None,
     y: Iterable[Any] | None = None,
+    x0: Iterable[Any] | None = None,
+    x1: Iterable[Any] | None = None,
+    y0: Iterable[Any] | None = None,
+    y1: Iterable[Any] | None = None,
     exclude_diagonal: bool = False,
 ) -> RasterizedHeatmap:
-    return RasterizedHeatmap(color, x, y, exclude_diagonal)
+    return RasterizedHeatmap(
+        color, x=x, y=y, x0=x0, x1=x1, y0=y0, y1=y1, exclude_diagonal=exclude_diagonal
+    )

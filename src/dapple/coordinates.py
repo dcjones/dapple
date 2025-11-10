@@ -259,6 +259,18 @@ class AbsLengths(Lengths, Serializable):
             return AbsLengths(self.values[index])
 
     @override
+    def __add__(self, other: Lengths) -> Lengths:
+        # Custom handling here to allow direct adding of positions and vectors of the same unit
+        if isinstance(other, AbsLengths):
+            return AbsLengths(self.values + other.values)
+        else:
+            return super().__add__(other)
+
+    @override
+    def __neg__(self) -> Lengths:
+        return AbsLengths(-self.values)
+
+    @override
     def unmin(self) -> AbsLengths:
         """
         Unary minimum.

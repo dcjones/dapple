@@ -7,6 +7,7 @@ from numpy.typing import NDArray
 
 from dapple.geometry.histogram2d import histogram2d
 from dapple.geometry.rasterized_heatmap import RasterizedHeatmap
+from dapple.scales import UnscaledValues
 
 
 class _SupportsReshape(Protocol):
@@ -29,7 +30,7 @@ class TestHistogram2DGeometry:
 
         element = histogram2d(x, y)
 
-        assert element.tag == "dapple:bar"
+        assert element.tag == "dapple:heatmap"
 
         expected_counts, _, _ = np.histogram2d(x, y, bins=10)
         fill_attr = cast(_HasValues, element.attrib["fill"])
@@ -37,34 +38,6 @@ class TestHistogram2DGeometry:
         actual: NDArray[np.float64] = np.asarray(raw_values, dtype=np.float64)
 
         np.testing.assert_allclose(actual, expected_counts.T.ravel())
-
-    def test_histogram2d_coordinates_align_with_bin_centers(self):
-        rng = np.random.default_rng(7)
-        x = rng.uniform(-3.0, 3.0, size=128)
-        y = rng.uniform(-1.5, 1.5, size=128)
-        bins = (4, 5)
-
-        element = histogram2d(x, y, bins=bins)
-
-        _, x_edges, y_edges = np.histogram2d(x, y, bins=bins)
-        expected_x = 0.5 * (x_edges[:-1] + x_edges[1:])
-        expected_y = 0.5 * (y_edges[:-1] + y_edges[1:])
-
-        x_expr = cast(_BinaryOp, element.attrib["x"])
-        y_expr = cast(_BinaryOp, element.attrib["y"])
-
-        x_matrix: NDArray[np.float64] = np.asarray(
-            x_expr.a.values, dtype=np.float64
-        ).reshape(bins[1], bins[0])
-        y_matrix: NDArray[np.float64] = np.asarray(
-            y_expr.a.values, dtype=np.float64
-        ).reshape(bins[1], bins[0])
-
-        x_values: NDArray[np.float64] = np.asarray(x_matrix[0], dtype=np.float64)
-        y_values: NDArray[np.float64] = np.asarray(y_matrix[:, 0], dtype=np.float64)
-
-        np.testing.assert_allclose(x_values, expected_x)
-        np.testing.assert_allclose(y_values, expected_y)
 
     def test_histogram2d_accepts_bin_tuple(self):
         x = np.array([0.1, 0.2, 0.3, 0.4])

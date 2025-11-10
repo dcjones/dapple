@@ -1,20 +1,21 @@
-import numpy as np
-from typing import Optional, Any, override
+from typing import Any, Optional, cast, override
 
-from ..elements import Element, VectorizedElement
-from ..scales import length_params, color_params
+import numpy as np
+
+from ..config import ConfigKey
 from ..coordinates import (
-    CtxLenType,
     AbsLengths,
+    CoordBounds,
+    CtxLenType,
     Lengths,
     ResolveContext,
-    CoordBounds,
-    resolve,
-    mm,
     cxv,
     cyv,
+    mm,
+    resolve,
 )
-from ..config import ConfigKey
+from ..elements import Element, VectorizedElement
+from ..scales import color_params, length_params
 
 
 class Bar(Element):
@@ -25,9 +26,18 @@ class Bar(Element):
     resolves to a VectorizedElement with adjusted positions and positive dimensions.
     """
 
-    def __init__(self, x, y, width, height, **kwargs):
+    def __init__(self, x, y, width=None, height=None, x1=None, y1=None, **kwargs):
         super().__init__(tag="dapple:bar")
-        self.attrib = {"x": x, "y": y, "width": width, "height": height, **kwargs}
+
+        self.attrib = {"x": x, "y": y, **kwargs}
+        if width is not None:
+            self.attrib["width"] = width
+        if height is not None:
+            self.attrib["height"] = height
+        if x1 is not None:
+            self.attrib["x1"] = x1
+        if y1 is not None:
+            self.attrib["y1"] = y1
 
     @override
     def update_bounds(self, bounds: CoordBounds):
@@ -40,29 +50,47 @@ class Bar(Element):
         """
         x = self.get_as("x", Lengths)
         y = self.get_as("y", Lengths)
-        width = self.get_as("width", Lengths)
-        height = self.get_as("height", Lengths)
 
-        nudge = self.attrib.get("dapple:nudge")
-        if nudge is not None:
-            bounds.update(x - nudge)
-            bounds.update(y - nudge)
+        nudge = self.get("dapple:nudge", 0 * mm)
+        assert isinstance(nudge, Lengths)
+
+        bounds.update(x - nudge)
+        bounds.update(y - nudge)
+
+        if "width" in self.attrib:
+            width = self.get_as("width", Lengths)
             bounds.update(x + width + nudge)
+        else:
+            x1 = self.get_as("x1", Lengths)
+            bounds.update(x1 + nudge)
+
+        if "height" in self.attrib:
+            height = self.get_as("height", Lengths)
             bounds.update(y + height + nudge)
         else:
-            bounds.update(x)
-            bounds.update(y)
-            bounds.update(x + width)
-            bounds.update(y + height)
+            y1 = self.get_as("y1", Lengths)
+            bounds.update(y1 + nudge)
 
     def resolve(self, ctx: ResolveContext) -> Element:
         """Resolve to VectorizedElement rect with corrected position and positive dimensions."""
         resolved_attrib = resolve(self.attrib, ctx)
 
         x = resolved_attrib.pop("x")
+        assert isinstance(x, AbsLengths)
+
         y = resolved_attrib.pop("y")
-        width = resolved_attrib.pop("width")
-        height = resolved_attrib.pop("height")
+        assert isinstance(y, AbsLengths)
+
+        if "width" in resolved_attrib:
+            width = cast(AbsLengths, resolved_attrib.pop("width"))
+        else:
+            width = cast(AbsLengths, resolved_attrib["x1"]) - x
+
+        if "height" in resolved_attrib:
+            height = cast(AbsLengths, resolved_attrib.pop("height"))
+        else:
+            height = cast(AbsLengths, resolved_attrib["y1"]) - y
+
         nudge = resolved_attrib.pop("dapple:nudge", None)
 
         # Handle negative widths by adjusting x position
