@@ -12,5 +12,6 @@ from .rasterized_heatmap import rasterized_heatmap
 from .rasterized_points import rasterized_points
 from .rasterized_polygon_outlines import rasterized_polygon_outlines
 from .rasterized_polygons import rasterized_polygons
+from .rasterized_segments import rasterized_segments
 from .ticks import xticks, yticks
 from .violin import horizontal_violin, vertical_violin, violin
