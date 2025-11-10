@@ -1,52 +1,52 @@
-from numbers import Number
-from typing import TextIO, BinaryIO, Callable, Collection, override, cast
-from io import StringIO
-import numpy as np
 import sys
+from io import StringIO
+from numbers import Number
 from pathlib import Path
+from typing import BinaryIO, Callable, Collection, TextIO, cast, override
 
-from .elements import Element, viewport
-from .geometry import xgrids, ygrids, xticks, yticks, xticklabels, yticklabels, key
+import numpy as np
+
+from .clipboard import ClipboardError, copy_png, copy_svg
+from .colors import Colors
+from .config import Config, ConfigKey, default_config
 from .coordinates import (
-    CoordBounds,
-    CoordTransform,
-    Serializable,
     AbsCoordSet,
     AbsCoordTransform,
-    Lengths,
     AbsLengths,
-    ResolveContext,
+    CoordBounds,
+    CoordTransform,
     Lengths,
+    ResolveContext,
+    Serializable,
     abslengths,
-    mm,
     cm,
-    pt,
-    inch,
     cx,
     cxv,
     cy,
     cyv,
-    vw,
-    vwv,
+    inch,
+    mm,
+    pt,
     vh,
     vhv,
+    vw,
+    vwv,
 )
-from .occupancy import Occupancy
-from .clipboard import copy_svg, ClipboardError
-from .scales import (
-    UnscaledValues,
-    UnscaledExpr,
-    ScaleSet,
-    ScaleContinuousColor,
-    ScaleDiscreteColor,
-    ScaleContinuousLength,
-    ScaleDiscreteLength,
-)
-from .export import svg_to_png, svg_to_pdf, ExportError
-from .scales import Scale
-from .config import Config, ConfigKey, default_config
+from .elements import Element, viewport
+from .export import ExportError, svg_to_pdf, svg_to_png
+from .geometry import key, xgrids, xticklabels, xticks, ygrids, yticklabels, yticks
 from .layout import Position
-from .colors import Colors
+from .occupancy import Occupancy
+from .scales import (
+    Scale,
+    ScaleContinuousColor,
+    ScaleContinuousLength,
+    ScaleDiscreteColor,
+    ScaleDiscreteLength,
+    ScaleSet,
+    UnscaledExpr,
+    UnscaledValues,
+)
 
 
 class Plot(Element):
@@ -494,6 +494,7 @@ class Plot(Element):
             dpi: Resolution in dots per inch (default: 96)
             pixel_width: Optional width in pixels (overrides SVG dimensions)
             pixel_height: Optional height in pixels (overrides SVG dimensions)
+            clip: If True, also copy the PNG to the clipboard
 
         Returns:
             PNG data as bytes if output is None, otherwise None
@@ -512,9 +513,45 @@ class Plot(Element):
             assert background.isscalar()
             background_str = cast(str, background.serialize())
 
-        # Convert to PNG using Inkscape
+        is_stream_output = output is not None and not isinstance(output, str)
+        need_bytes = clip or output is None
+
         try:
-            return svg_to_png(
+            if need_bytes:
+                png_bytes = svg_to_png(
+                    svg_string,
+                    output=None,
+                    dpi=dpi,
+                    width=pixel_width,
+                    height=pixel_height,
+                    background=background_str,
+                )
+                assert isinstance(png_bytes, bytes)
+
+                if clip:
+                    try:
+                        copy_png(png_bytes)
+                    except ClipboardError as e:
+                        print(
+                            f"Warning: Failed to copy PNG to clipboard: {e}",
+                            file=sys.stderr,
+                        )
+
+                if output is None:
+                    return png_bytes
+
+                if is_stream_output:
+                    output.write(png_bytes)
+                    if hasattr(output, "flush"):
+                        output.flush()
+                else:
+                    assert isinstance(output, str)
+                    with open(output, "wb") as output_file:
+                        output_file.write(png_bytes)
+
+                return None
+
+            svg_to_png(
                 svg_string,
                 output=output,
                 dpi=dpi,
@@ -522,6 +559,7 @@ class Plot(Element):
                 height=pixel_height,
                 background=background_str,
             )
+            return None
         except ExportError as e:
             print(f"Error exporting to PNG: {e}", file=sys.stderr)
             raise
