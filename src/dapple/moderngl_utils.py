@@ -24,8 +24,26 @@ class ModernGLContext:
 
     def __init__(self):
         if not self._initialized:
-            self.ctx = moderngl.create_context(standalone=True, require=330)
-            self._initialized = True
+            exceptions = []
+            # Try backends in order. None lets moderngl choose (usually good for desktop).
+            # 'egl' is good for headless linux. 'osmesa' is software fallback.
+            for backend in [None, "egl", "osmesa"]:
+                try:
+                    if backend is None:
+                        self.ctx = moderngl.create_context(standalone=True, require=330)
+                    else:
+                        self.ctx = moderngl.create_context(
+                            standalone=True, require=330, backend=backend
+                        )
+                    self._initialized = True
+                    return
+                except Exception as e:
+                    exceptions.append(f"{backend or 'auto'}: {e}")
+
+            raise RuntimeError(
+                "Failed to initialize ModernGL context. Tried backends: "
+                + "; ".join(exceptions)
+            )
 
     def get_context(self) -> moderngl.Context:
         return self.ctx
