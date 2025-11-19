@@ -1,22 +1,23 @@
 import io
 import math
+
 import numpy as np
 import pytest
 
-from dapple.geometry import vertical_violin, horizontal_violin, violin
-from dapple.elements import Element
 from dapple.colors import Colors
+from dapple.config import Config
+from dapple.coordinates import Lengths
+from dapple.elements import Element
+from dapple.geometry import horizontal_violin, vertical_violin, violin
 from dapple.scales import (
+    ScaleContinuousColor,
+    ScaleContinuousLength,
+    ScaleDiscreteColor,
+    ScaleDiscreteLength,
+    ScaleSet,
     UnscaledExpr,
     UnscaledValues,
-    ScaleSet,
-    ScaleContinuousLength,
-    ScaleDiscreteLength,
-    ScaleContinuousColor,
-    ScaleDiscreteColor,
 )
-from dapple.coordinates import Lengths
-from dapple.config import Config
 
 
 def _collect_unscaled_units(el: Element) -> set[str]:
@@ -149,9 +150,8 @@ class TestVerticalViolin:
         for p in _iter_paths(scaled):
             if p.tag == "dapple:path" and isinstance(p.attrib.get("fill"), Colors):
                 path_colors.append(p.attrib["fill"])
-            elif (
-                p.tag == "dapple:violin_quartile"
-                and isinstance(p.attrib.get("fill"), Colors)
+            elif p.tag == "dapple:violin_quartile" and isinstance(
+                p.attrib.get("fill"), Colors
             ):
                 overlay_colors.append(p.attrib["fill"])
 
@@ -190,6 +190,21 @@ class TestVerticalViolin:
         units_b = _collect_unscaled_units(b)
         assert "x" in units_a and "y" in units_a
         assert "x" in units_b and "y" in units_b
+
+    def test_vertical_violin_broadcasting(self):
+        y = [1.0, 2.0, 3.0, 4.0]
+
+        # Scalar str x
+        el_scalar = vertical_violin(x="Group", y=y)
+        assert el_scalar is not None
+
+        # Scalar int x
+        el_int = vertical_violin(x=1, y=y)
+        assert el_int is not None
+
+        # Single element list x
+        el_list = vertical_violin(x=["Group"], y=y)
+        assert el_list is not None
 
 
 class TestHorizontalViolin:
@@ -230,9 +245,8 @@ class TestHorizontalViolin:
         for p in _iter_paths(scaled):
             if p.tag == "dapple:path" and isinstance(p.attrib.get("fill"), Colors):
                 path_colors.append(p.attrib["fill"])
-            elif (
-                p.tag == "dapple:violin_quartile"
-                and isinstance(p.attrib.get("fill"), Colors)
+            elif p.tag == "dapple:violin_quartile" and isinstance(
+                p.attrib.get("fill"), Colors
             ):
                 overlay_colors.append(p.attrib["fill"])
 
@@ -257,3 +271,18 @@ class TestHorizontalViolin:
         else:
             children = list(_iter_paths(scaled))
             assert any(child.tag == "dapple:path" for child in children)
+
+    def test_horizontal_violin_broadcasting(self):
+        x = [1.0, 2.0, 3.0, 4.0]
+
+        # Scalar str y
+        el_scalar = horizontal_violin(x=x, y="Group")
+        assert el_scalar is not None
+
+        # Scalar int y
+        el_int = horizontal_violin(x=x, y=1)
+        assert el_int is not None
+
+        # Single element list y
+        el_list = horizontal_violin(x=x, y=["Group"])
+        assert el_list is not None

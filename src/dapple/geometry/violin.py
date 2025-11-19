@@ -8,22 +8,21 @@ from typing import Any, Optional, override
 
 import numpy as np
 
-from ..elements import Element, Path
-from ..geometry.bars import Bar
-from ..scales import UnscaledExpr, UnscaledValues, length_params, color_params
+from ..colors import Colors
+from ..config import ConfigKey
 from ..coordinates import (
+    AbsLengths,
     CtxLenType,
     Lengths,
-    AbsLengths,
     ResolveContext,
-    resolve,
     cxv,
     cyv,
+    resolve,
 )
-from ..config import ConfigKey
-from ..colors import Colors
+from ..elements import Element, Path
+from ..geometry.bars import Bar
+from ..scales import UnscaledExpr, UnscaledValues, color_params, length_params
 from .lines import _adaptive_sample_function
-
 
 # ---- Utilities ----------------------------------------------------------------
 
@@ -392,7 +391,7 @@ def _violin_impl(
 
 
 def vertical_violin(
-    x: Iterable[Any],
+    x: Any,
     y: Iterable[float],
     *,
     width: float = 0.9,
@@ -405,8 +404,18 @@ def vertical_violin(
     Draw vertical violins for distributions of y grouped by x.
     One violin per unique x (in order of first appearance).
     """
-    x_list = list(x)
     y_list = list(map(float, y))
+    if isinstance(x, (str, bytes)):
+        x_list = [x] * len(y_list)
+    else:
+        try:
+            x_list = list(x)
+        except TypeError:
+            x_list = [x] * len(y_list)
+        else:
+            if len(x_list) == 1 and len(y_list) > 1:
+                x_list = x_list * len(y_list)
+
     if len(x_list) != len(y_list):
         raise ValueError("x and y must have the same length")
 
@@ -428,7 +437,7 @@ def vertical_violin(
 
 def horizontal_violin(
     x: Iterable[float],
-    y: Iterable[Any],
+    y: Any,
     *,
     width: float = 0.9,
     color: Optional[Any] = None,
@@ -441,7 +450,17 @@ def horizontal_violin(
     One violin per unique y (in order of first appearance).
     """
     x_list = list(map(float, x))
-    y_list = list(y)
+    if isinstance(y, (str, bytes)):
+        y_list = [y] * len(x_list)
+    else:
+        try:
+            y_list = list(y)
+        except TypeError:
+            y_list = [y] * len(x_list)
+        else:
+            if len(y_list) == 1 and len(x_list) > 1:
+                y_list = y_list * len(x_list)
+
     if len(x_list) != len(y_list):
         raise ValueError("x and y must have the same length")
 
