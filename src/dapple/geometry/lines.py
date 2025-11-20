@@ -12,6 +12,8 @@ from ..coordinates import (
     Lengths,
     ResolveContext,
     Serializable,
+    cy,
+    cyv,
     resolve,
 )
 from ..elements import Element, Path, PathData, VectorizedElement
@@ -193,6 +195,7 @@ def segments(x1, y1, x2, y2, color=ConfigKey("linecolor")) -> Element:
 
 def density(
     x,
+    y=None,
     color=ConfigKey("linecolor"),
     bw_method=None,
     weights=None,
@@ -209,6 +212,8 @@ def density(
 
     Args:
         x: Input data (1D array-like).
+        y: Optional y-offset. If provided, the density plot is shifted by this amount
+           along the y-axis. This is useful for creating ridgeline plots.
         color: Line color.
         bw_method: Bandwidth estimation method for `gaussian_kde`. Can be
                    'scott', 'silverman', a scalar, or a callable.
@@ -246,6 +251,15 @@ def density(
         y_max = np.max(y_arr)
         if y_max > 0:
             y_arr /= y_max
+
+    if y is not None:
+        if np.ndim(y) == 0:
+            y_baseline = [y] * len(x_arr)
+        else:
+            raise ValueError("y must be a scalar when plotting density")
+
+        y_vals = length_params("y", y_baseline, CtxLenType.Pos) + cy(y_arr) - cyv(0.5)
+        return line(x=x_arr, y=y_vals, color=color, width=width)
 
     return line(x=x_arr, y=y_arr, color=color, width=width)
 

@@ -94,8 +94,8 @@ class UnscaledValues(UnscaledExpr):
 
 def length_params(
     unit: str, values: Any, typ: CtxLenType
-) -> ConfigKey | Lengths | UnscaledValues:
-    if isinstance(values, (ConfigKey, Lengths)):
+) -> ConfigKey | Lengths | UnscaledExpr:
+    if isinstance(values, (ConfigKey, Lengths, UnscaledExpr)):
         return values
     else:
         # If everything is a AbsLengths or CtxLengths of the same type, pass the
