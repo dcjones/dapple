@@ -199,6 +199,7 @@ def density(
     xmin=None,
     xmax=None,
     width=ConfigKey("linestroke"),
+    normalize=False,
 ):
     """
     Plot a kernel density estimate.
@@ -214,6 +215,7 @@ def density(
         weights: Weights for each data point in `x`.
         xmin: Minimum x value for plotting. Defaults to min of `x`.
         xmax: Maximum x value for plotting. Defaults to max of `x`.
+        normalize: If True, normalize the density so the maximum value is 1.
     """
     try:
         from scipy.stats import gaussian_kde
@@ -236,9 +238,16 @@ def density(
 
     kde = gaussian_kde(x_vals, bw_method=bw_method, weights=weights)
 
-    # The adaptive sampler expects a function that returns a scalar, but kde
-    # returns an array.
-    return line(y=lambda v: kde(v)[0], xmin=xmin, xmax=xmax, color=color, width=width)
+    x_arr, y_arr = _adaptive_sample_function(lambda v: kde(v)[0], xmin, xmax)
+    if len(x_arr) < 2:
+        return Element("g")
+
+    if normalize:
+        y_max = np.max(y_arr)
+        if y_max > 0:
+            y_arr /= y_max
+
+    return line(x=x_arr, y=y_arr, color=color, width=width)
 
 
 def _has_multiple_values(color) -> bool:
