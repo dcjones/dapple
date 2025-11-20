@@ -205,6 +205,7 @@ def density(
     width=ConfigKey("linestroke"),
     normalize=False,
     clip=1e-3,
+    markers=None,
 ):
     """
     Plot a kernel density estimate.
@@ -272,10 +273,13 @@ def density(
     if len(x_arr) < 2:
         return Element("g")
 
+    normalization_factor = 1.0
     if normalize:
-        y_max = np.max(y_arr)
-        if y_max > 0:
-            y_arr /= y_max
+        normalization_factor = np.max(y_arr)
+        if normalization_factor > 0:
+            y_arr /= normalization_factor
+        else:
+            normalization_factor = 1.0
 
     if y is not None:
         if np.ndim(y) == 0:
@@ -283,10 +287,37 @@ def density(
         else:
             raise ValueError("y must be a scalar when plotting density")
 
-        y_vals = length_params("y", y_baseline, CtxLenType.Pos) + cy(y_arr) - cyv(0.5)
-        return line(x=x_arr, y=y_vals, color=color, width=width)
+        y_vals = length_params("y", y_baseline, CtxLenType.Pos) + cyv(y_arr)
+        main_line = line(x=x_arr, y=y_vals, color=color, width=width)
+    else:
+        main_line = line(x=x_arr, y=y_arr, color=color, width=width)
 
-    return line(x=x_arr, y=y_arr, color=color, width=width)
+    if markers is None:
+        return main_line
+
+    marker_vals = np.atleast_1d(markers)
+    marker_heights = kde(marker_vals)
+
+    if normalize:
+        marker_heights /= normalization_factor
+
+    if y is not None:
+        # Use y as baseline
+        y_pos_base = length_params("y", [y] * len(marker_vals), CtxLenType.Pos)
+        y_pos_top = y_pos_base + cyv(marker_heights)
+        marker_lines = segments(
+            marker_vals, y_pos_base, marker_vals, y_pos_top, color=color
+        )
+    else:
+        marker_lines = segments(
+            marker_vals,
+            np.zeros_like(marker_vals),
+            marker_vals,
+            marker_heights,
+            color=color,
+        )
+
+    return Element("g", {}, main_line, marker_lines)
 
 
 def _has_multiple_values(color) -> bool:
