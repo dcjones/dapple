@@ -1,3 +1,4 @@
+import math
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from numbers import Number
@@ -203,6 +204,7 @@ def density(
     xmax=None,
     width=ConfigKey("linestroke"),
     normalize=False,
+    clip=1e-3,
 ):
     """
     Plot a kernel density estimate.
@@ -221,6 +223,7 @@ def density(
         xmin: Minimum x value for plotting. Defaults to min of `x`.
         xmax: Maximum x value for plotting. Defaults to max of `x`.
         normalize: If True, normalize the density so the maximum value is 1.
+        clip: Threshold density value for automatic range determination.
     """
     try:
         from scipy.stats import gaussian_kde
@@ -236,12 +239,34 @@ def density(
     if x_vals.size < 2:
         return Element("g")
 
-    if xmin is None:
-        xmin = np.min(x_vals)
-    if xmax is None:
-        xmax = np.max(x_vals)
-
     kde = gaussian_kde(x_vals, bw_method=bw_method, weights=weights)
+
+    if xmin is None or xmax is None:
+        dmin = float(np.min(x_vals))
+        dmax = float(np.max(x_vals))
+
+        if dmax <= dmin:
+            pad = 1.0 if dmin == 0.0 else abs(dmin) * 1e-6
+            dmin -= pad
+            dmax += pad
+
+        std = float(np.std(x_vals))
+        if not math.isfinite(std) or std == 0.0:
+            std = max(1e-3, (dmax - dmin) if dmax > dmin else 1.0)
+
+        if xmin is None:
+            cur = dmin
+            left_limit = dmin - 10.0 * std
+            while kde(cur)[0] > clip and cur > left_limit:
+                cur -= std
+            xmin = float(cur)
+
+        if xmax is None:
+            cur = dmax
+            right_limit = dmax + 10.0 * std
+            while kde(cur)[0] > clip and cur < right_limit:
+                cur += std
+            xmax = float(cur)
 
     x_arr, y_arr = _adaptive_sample_function(lambda v: kde(v)[0], xmin, xmax)
     if len(x_arr) < 2:
