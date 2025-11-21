@@ -1,4 +1,5 @@
 import sys
+from copy import copy
 from io import StringIO
 from numbers import Number
 from pathlib import Path
@@ -111,6 +112,8 @@ class Plot(Element):
         # TODO: Probably need to do a deep copy here to avoid modifying the underlying plot on resolve
         scaleset = self.attrib.get("dapple:scaleset", ScaleSet())
         assert isinstance(scaleset, dict)
+        ctx = copy(ctx)
+        ctx.scales = scaleset
 
         all_numeric: dict[str, bool] = dict()
 
@@ -209,9 +212,6 @@ class Plot(Element):
         # Resolve children
         ctx.scales = scaleset
         svg_root = root.resolve(ctx)
-
-        # Strip any lingering dapple-specific attributes
-        svg_root.delete_attributes_inplace(lambda k, v: k.startswith("dapple:"))
 
         return svg_root
 

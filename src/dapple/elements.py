@@ -349,6 +349,9 @@ class Element(Resolvable):
         resolved_plot = self.resolve(ctx)
         assert isinstance(resolved_plot, Element)
 
+        # Strip any lingering dapple-specific attributes
+        resolved_plot.delete_attributes_inplace(lambda k, v: k.startswith("dapple:"))
+
         svg_root = Element("svg")
         width_value = width.scalar_value()
         height_value = height.scalar_value()
@@ -700,7 +703,7 @@ class Path(Element):
 
 
 def viewport(
-    children: Iterable[Element],
+    children: Iterable[Element] | Element,
     x: Lengths | None = None,
     y: Lengths | None = None,
     width: Lengths | None = None,
@@ -715,6 +718,9 @@ def viewport(
         width = vw(1) - x
     if height is None:
         height = vh(1) - y
+
+    if isinstance(children, Element):
+        children = [children]
 
     return Element(
         "g",
@@ -750,3 +756,25 @@ def pad(
         left = padding
 
     return viewport([el], left, top, vwv(1) - left - right, vhv(1) - top - bottom)
+
+
+def hstack(*els: Element) -> Element:
+    n = len(els)
+    parent = Element("g")
+
+    for i, el in enumerate(els):
+        vp = viewport(el, x=(i / n) * vw, width=(1 / n) * vwv)
+        parent.append(vp)
+
+    return parent
+
+
+def vstack(*els: Element) -> Element:
+    n = len(els)
+    parent = Element("g")
+
+    for i, el in enumerate(els):
+        vp = viewport(el, y=(i / n) * vh, height=(1 / n) * vhv)
+        parent.append(vp)
+
+    return parent
