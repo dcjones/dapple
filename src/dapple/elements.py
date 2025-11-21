@@ -214,7 +214,8 @@ class Element(Resolvable):
             _ = output.write(" " * indent)
             _ = output.write(f"</{self.tag}>\n")
 
-    def _repr_svg_(self) -> str:
+    @override
+    def __str__(self) -> str:
         buf = StringIO()
         self.serialize(buf)
         return buf.getvalue()
@@ -515,8 +516,11 @@ class Element(Resolvable):
             raise
 
     def _repr_svg_(self) -> str:
-        config = self.get_as("dapple:config", Config, lambda: default_config())
-        return self.svg(config.plot_width, config.plot_height)._repr_svg_()
+        if self.tag == "svg":
+            return str(self)
+        else:
+            config = self.get_as("dapple:config", Config, lambda: default_config())
+            return str(self.svg(config.plot_width, config.plot_height))
 
 
 class RawText(Element):
