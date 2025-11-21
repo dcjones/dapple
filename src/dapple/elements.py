@@ -1,35 +1,46 @@
-from .coordinates import (
-    CoordTransform,
-    CoordBounds,
-    Resolvable,
-    CoordSet,
-    AbsLengths,
-    Lengths,
-    ResolveContext,
-    Serializable,
-    resolve,
-    mm,
-    vw,
-    vwv,
-    vh,
-    vhv,
-    translate,
-)
-from .colors import Colors
-from .scales import ScaleSet
-from typing import (
-    cast,
-    final,
-    Any,
-    TextIO,
-    Callable,
-    TypeVar,
-    override,
-)
+import pathlib
+import sys
 from collections.abc import Iterable
+from copy import copy
 from io import StringIO
 from itertools import repeat
-from copy import copy
+from numbers import Number
+from typing import (
+    Any,
+    BinaryIO,
+    Callable,
+    TextIO,
+    TypeVar,
+    cast,
+    final,
+    override,
+)
+
+from .clipboard import ClipboardError, copy_png, copy_svg
+from .colors import Colors
+from .config import Config, ConfigKey, default_config
+from .coordinates import (
+    AbsCoordTransform,
+    AbsLengths,
+    CoordBounds,
+    CoordSet,
+    CoordTransform,
+    Lengths,
+    Resolvable,
+    ResolveContext,
+    Serializable,
+    abslengths,
+    mm,
+    resolve,
+    translate,
+    vh,
+    vhv,
+    vw,
+    vwv,
+)
+from .export import ExportError, svg_to_pdf, svg_to_png
+from .occupancy import Occupancy
+from .scales import ScaleSet
 
 AttrType = TypeVar("AttrType")
 
@@ -304,6 +315,205 @@ class Element(Resolvable):
         else:
             coords = cast(CoordSet, self.get_as("dapple:coords", dict))
             coords.update(new_coords)
+
+    def svg(
+        self,
+        width: AbsLengths | Number,
+        height: AbsLengths | Number,
+        output: None | str | pathlib.Path | TextIO = None,
+        clip: bool = False,
+    ) -> "Element":
+        """
+        Given an absolute plot size, resolve the the plot into a pure SVG.
+        """
+
+        if not isinstance(width, AbsLengths):
+            width = abslengths(width)
+        width.assert_scalar()
+
+        if not isinstance(height, AbsLengths):
+            height = abslengths(height)
+        height.assert_scalar()
+
+        coords = {
+            "vw": AbsCoordTransform(width.scalar_value(), 0.0),
+            "vh": AbsCoordTransform(height.scalar_value(), 0.0),
+        }
+        occupancy = Occupancy(width, height)
+
+        scales = self.attrib.get("dapple:scaleset", ScaleSet())
+        assert isinstance(scales, dict)
+
+        ctx = ResolveContext(coords, scales, occupancy)
+
+        resolved_plot = self.resolve(ctx)
+        assert isinstance(resolved_plot, Element)
+
+        svg_root = Element("svg")
+        width_value = width.scalar_value()
+        height_value = height.scalar_value()
+        svg_root.set("width", f"{width_value:.3f}mm")
+        svg_root.set("height", f"{height_value:.3f}mm")
+        svg_root.set("viewBox", f"0 0 {width_value:.3f} {height_value:.3f}")
+        svg_root.set("xmlns", "http://www.w3.org/2000/svg")
+        svg_root.append(resolved_plot)
+
+        # TODO: We should output xml declaration
+
+        if clip:
+            svg_content = svg_root._repr_svg_()
+            try:
+                copy_svg(svg_content)
+            except ClipboardError as e:
+                print(f"Warning: Failed to copy SVG to clipboard: {e}", file=sys.stderr)
+
+        if output is not None:
+            if isinstance(output, pathlib.Path):
+                with output.open("w") as output_file:
+                    svg_root.serialize(output_file)
+            elif isinstance(output, str):
+                with open(output, "w") as output_file:
+                    svg_root.serialize(output_file)
+            else:
+                svg_root.serialize(output)
+
+        return svg_root
+
+    def png(
+        self,
+        width: AbsLengths | Number,
+        height: AbsLengths | Number,
+        output: None | str | BinaryIO = None,
+        dpi: int = 96,
+        pixel_width: None | int = None,
+        pixel_height: None | int = None,
+        background: Colors | None = None,
+        clip: bool = False,
+    ) -> None | bytes:
+        """
+        Export plot as PNG using Inkscape.
+
+        Args:
+            width: Width of the plot (in absolute units)
+            height: Height of the plot (in absolute units)
+            output: Output destination - can be:
+                - A string path to write the PNG file
+                - A file-like object opened in binary mode
+                - None to return the PNG data as bytes
+            dpi: Resolution in dots per inch (default: 96)
+            pixel_width: Optional width in pixels (overrides SVG dimensions)
+            pixel_height: Optional height in pixels (overrides SVG dimensions)
+            clip: If True, also copy the PNG to the clipboard
+
+        Returns:
+            PNG data as bytes if output is None, otherwise None
+
+        Raises:
+            ExportError: If Inkscape is not available or conversion fails
+        """
+        # First generate the SVG
+        svg_root = self.svg(width, height)
+        buf = StringIO()
+        svg_root.serialize(buf)
+        svg_string = buf.getvalue()
+
+        background_str: str | None = None
+        if isinstance(background, Colors):
+            assert background.isscalar()
+            background_str = cast(str, background.serialize())
+
+        is_stream_output = output is not None and not isinstance(output, str)
+        need_bytes = clip or output is None
+
+        try:
+            if need_bytes:
+                png_bytes = svg_to_png(
+                    svg_string,
+                    output=None,
+                    dpi=dpi,
+                    width=pixel_width,
+                    height=pixel_height,
+                    background=background_str,
+                )
+                assert isinstance(png_bytes, bytes)
+
+                if clip:
+                    try:
+                        copy_png(png_bytes)
+                    except ClipboardError as e:
+                        print(
+                            f"Warning: Failed to copy PNG to clipboard: {e}",
+                            file=sys.stderr,
+                        )
+
+                if output is None:
+                    return png_bytes
+
+                if is_stream_output:
+                    output.write(png_bytes)
+                    if hasattr(output, "flush"):
+                        output.flush()
+                else:
+                    assert isinstance(output, str)
+                    with open(output, "wb") as output_file:
+                        output_file.write(png_bytes)
+
+                return None
+
+            svg_to_png(
+                svg_string,
+                output=output,
+                dpi=dpi,
+                width=pixel_width,
+                height=pixel_height,
+                background=background_str,
+            )
+            return None
+        except ExportError as e:
+            print(f"Error exporting to PNG: {e}", file=sys.stderr)
+            raise
+
+    def pdf(
+        self,
+        width: AbsLengths | Number,
+        height: AbsLengths | Number,
+        output: None | str | BinaryIO = None,
+        text_to_path: bool = False,
+    ) -> None | bytes:
+        """
+        Export plot as PDF using Inkscape.
+
+        Args:
+            width: Width of the plot (in absolute units)
+            height: Height of the plot (in absolute units)
+            output: Output destination - can be:
+                - A string path to write the PDF file
+                - A file-like object opened in binary mode
+                - None to return the PDF data as bytes
+            text_to_path: Convert text to paths (default: False)
+
+        Returns:
+            PDF data as bytes if output is None, otherwise None
+
+        Raises:
+            ExportError: If Inkscape is not available or conversion fails
+        """
+        # First generate the SVG
+        svg_root = self.svg(width, height)
+        buf = StringIO()
+        svg_root.serialize(buf)
+        svg_string = buf.getvalue()
+
+        # Convert to PDF using Inkscape
+        try:
+            return svg_to_pdf(svg_string, output=output, text_to_path=text_to_path)
+        except ExportError as e:
+            print(f"Error exporting to PDF: {e}", file=sys.stderr)
+            raise
+
+    def _repr_svg_(self) -> str:
+        config = self.get_as("dapple:config", Config, lambda: default_config())
+        return self.svg(config.plot_width, config.plot_height)._repr_svg_()
 
 
 class RawText(Element):
