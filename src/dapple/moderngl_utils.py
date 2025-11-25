@@ -353,9 +353,11 @@ def render_lines_to_texture(
         raise ValueError("segments must have shape (S, 2, 2)")
 
     S = segs.shape[0]
+
+    # Create framebuffer
+    framebuffer, texture = create_framebuffer(width, height)
+
     if S == 0:
-        # Return empty transparent image
-        framebuffer, texture = create_framebuffer(width, height)
         framebuffer.use()
         framebuffer.clear(*background_color)
         data = np.frombuffer(texture.read(), dtype=np.uint8).reshape((height, width, 4))
@@ -364,85 +366,13 @@ def render_lines_to_texture(
         texture.release()
         return data
 
-    # Map data coords -> pixel coords
-    x0, x1 = float(x_range[0]), float(x_range[1])
-    y0, y1 = float(y_range[0]), float(y_range[1])
-
-    # Avoid division by zero
-    xr = x1 - x0 if (x1 - x0) != 0 else 1.0
-    yr = y1 - y0 if (y1 - y0) != 0 else 1.0
-
-    p0 = segs[:, 0, :].astype(np.float32)
-    p1 = segs[:, 1, :].astype(np.float32)
-
-    # Pixel coordinates
-    p0_pix = np.empty_like(p0, dtype=np.float32)
-    p1_pix = np.empty_like(p1, dtype=np.float32)
-    p0_pix[:, 0] = (p0[:, 0] - x0) / xr * float(width)
-    p0_pix[:, 1] = (p0[:, 1] - y0) / yr * float(height)
-    p1_pix[:, 0] = (p1[:, 0] - x0) / xr * float(width)
-    p1_pix[:, 1] = (p1[:, 1] - y0) / yr * float(height)
-
-    # Build quad per segment in pixel space with half-width
-    hw = float(line_width) * 0.5
-    quads = []
-    valid_idx = []
-
-    for i in range(S):
-        a = p0_pix[i]
-        b = p1_pix[i]
-        d = b - a
-        norm = np.linalg.norm(d)
-        if norm <= 1e-6:
-            continue  # skip degenerate segments
-
-        # Perpendicular of (dx,dy) in pixel space
-        n = np.array([-d[1], d[0]], dtype=np.float32)
-        n_norm = np.linalg.norm(n)
-        if n_norm <= 1e-12:
-            continue
-        n = (n / n_norm) * hw
-
-        # Quad vertices in pixel coords: a+n, a-n, b-n, b+n (clockwise)
-        v0 = a + n
-        v1 = a - n
-        v2 = b - n
-        v3 = b + n
-
-        # Convert to NDC
-        def to_ndc(pix: np.ndarray) -> np.ndarray:
-            return np.array(
-                [
-                    2.0 * (pix[0] / float(width)) - 1.0,
-                    2.0 * (pix[1] / float(height)) - 1.0,
-                ],
-                dtype=np.float32,
-            )
-
-        v0n = to_ndc(v0)
-        v1n = to_ndc(v1)
-        v2n = to_ndc(v2)
-        v3n = to_ndc(v3)
-
-        # Two triangles: (v0,v1,v2) and (v0,v2,v3)
-        quads.append(np.stack([v0n, v1n, v2n, v0n, v2n, v3n], axis=0))
-        valid_idx.append(i)
-
-    if len(quads) == 0:
-        framebuffer, texture = create_framebuffer(width, height)
-        framebuffer.use()
-        framebuffer.clear(*background_color)
-        data = np.frombuffer(texture.read(), dtype=np.uint8).reshape((height, width, 4))
-        data = np.flip(data, axis=0)
-        framebuffer.release()
-        texture.release()
-        return data
-
-    verts_ndc = np.concatenate(quads, axis=0).astype(np.float32)  # (N*6, 2)
+    # Prepare instance data
+    p0 = np.ascontiguousarray(segs[:, 0, :], dtype=np.float32)
+    p1 = np.ascontiguousarray(segs[:, 1, :], dtype=np.float32)
 
     # Colors
     if colors is None:
-        cols = np.ones((len(valid_idx), 4), dtype=np.float32)
+        cols = np.ones((S, 4), dtype=np.float32)
     else:
         cols = np.asarray(colors, dtype=np.float32)
         if cols.ndim == 1:
@@ -452,27 +382,64 @@ def render_lines_to_texture(
             cols = np.concatenate([cols, alpha], axis=1)
         if cols.shape[0] != S:
             raise ValueError("colors must provide one color per segment")
-        cols = cols[valid_idx, :].astype(np.float32)
+    cols = np.ascontiguousarray(cols, dtype=np.float32)
 
-    # Expand per-quad color to per-vertex (6 vertices per segment)
-    cols_per_vertex = (
-        np.repeat(cols[:, None, :], 6, axis=1).reshape((-1, 4)).astype(np.float32)
-    )
+    # VBOs for instance data
+    vbo_p0 = ctx.buffer(p0.tobytes())
+    vbo_p1 = ctx.buffer(p1.tobytes())
+    vbo_col = ctx.buffer(cols.tobytes())
 
-    # Interleave position and color
-    vertex_data = np.column_stack([verts_ndc, cols_per_vertex]).astype(np.float32)
-
-    # Create GL resources
-    framebuffer, texture = create_framebuffer(width, height)
-    vbo = ctx.buffer(vertex_data.tobytes())
+    # Template vertices for a quad (2 triangles)
+    # Each vertex: [endpoint_idx (0=p0, 1=p1), offset_dir (-1 or 1)]
+    template_data = np.array([0, 1, 0, -1, 1, -1, 0, 1, 1, -1, 1, 1], dtype=np.float32)
+    vbo_template = ctx.buffer(template_data.tobytes())
 
     vertex_shader = """
     #version 330
-    in vec2 in_position;
-    in vec4 in_color;
+    uniform vec2 u_screen_size;
+    uniform vec2 u_x_range;
+    uniform vec2 u_y_range;
+    uniform float u_line_width_px;
+
+    in vec2 in_template; // x=endpoint (0/1), y=offset (+1/-1)
+    in vec2 in_p0;       // instance
+    in vec2 in_p1;       // instance
+    in vec4 in_color;    // instance
+
     out vec4 v_color;
+
     void main() {
-        gl_Position = vec4(in_position, 0.0, 1.0);
+        // Map to pixel coordinates
+        float x0 = u_x_range.x;
+        float x1 = u_x_range.y;
+        float y0 = u_y_range.x;
+        float y1 = u_y_range.y;
+
+        vec2 p0_px = vec2(
+            (in_p0.x - x0) / (x1 - x0) * u_screen_size.x,
+            (in_p0.y - y0) / (y1 - y0) * u_screen_size.y
+        );
+        vec2 p1_px = vec2(
+            (in_p1.x - x0) / (x1 - x0) * u_screen_size.x,
+            (in_p1.y - y0) / (y1 - y0) * u_screen_size.y
+        );
+
+        vec2 dir = p1_px - p0_px;
+        if (length(dir) < 0.001) {
+            gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // Clip
+            return;
+        }
+
+        vec2 normal = normalize(vec2(-dir.y, dir.x));
+        vec2 offset = normal * (u_line_width_px * 0.5) * in_template.y;
+
+        // Interpolate between p0 and p1 based on template.x (0 or 1)
+        vec2 pos_px = mix(p0_px, p1_px, in_template.x) + offset;
+
+        // Convert back to NDC [-1, 1]
+        vec2 pos_ndc = (pos_px / u_screen_size) * 2.0 - 1.0;
+
+        gl_Position = vec4(pos_ndc, 0.0, 1.0);
         v_color = in_color;
     }
     """
@@ -487,7 +454,20 @@ def render_lines_to_texture(
     """
 
     program = ctx.program(vertex_shader=vertex_shader, fragment_shader=fragment_shader)
-    vao = ctx.vertex_array(program, [(vbo, "2f 4f", "in_position", "in_color")])
+    program["u_screen_size"].value = (float(width), float(height))
+    program["u_x_range"].value = (float(x_range[0]), float(x_range[1]))
+    program["u_y_range"].value = (float(y_range[0]), float(y_range[1]))
+    program["u_line_width_px"].value = float(line_width)
+
+    vao = ctx.vertex_array(
+        program,
+        [
+            (vbo_template, "2f", "in_template"),
+            (vbo_p0, "2f /i", "in_p0"),
+            (vbo_p1, "2f /i", "in_p1"),
+            (vbo_col, "4f /i", "in_color"),
+        ],
+    )
 
     # Render
     framebuffer.use()
@@ -495,7 +475,7 @@ def render_lines_to_texture(
     ctx.enable(moderngl.BLEND)
     ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA)
 
-    vao.render(mode=moderngl.TRIANGLES)
+    vao.render(mode=moderngl.TRIANGLES, vertices=6, instances=S)
 
     # Readback
     data = np.frombuffer(texture.read(), dtype=np.uint8).reshape((height, width, 4))
@@ -503,7 +483,10 @@ def render_lines_to_texture(
 
     # Cleanup
     vao.release()
-    vbo.release()
+    vbo_p0.release()
+    vbo_p1.release()
+    vbo_col.release()
+    vbo_template.release()
     program.release()
     framebuffer.release()
     texture.release()

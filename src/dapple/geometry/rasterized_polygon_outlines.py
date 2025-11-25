@@ -1,12 +1,13 @@
-import numpy as np
 from typing import Iterable, List
 
-from ..elements import Element
-from ..scales import length_params, color_params
-from ..coordinates import CtxLenType, ResolveContext, AbsLengths, mm
-from ..config import ConfigKey
-from ..moderngl_utils import render_lines_to_texture, calculate_dpi_size
+import numpy as np
+
 from ..colors import Colors
+from ..config import ConfigKey
+from ..coordinates import AbsLengths, CtxLenType, ResolveContext, mm
+from ..elements import Element
+from ..moderngl_utils import calculate_dpi_size, render_lines_to_texture
+from ..scales import color_params, length_params
 from .image import ImageElement
 
 
@@ -63,18 +64,22 @@ class RasterizedPolygonOutlinesElement(Element):
 
             # Exterior ring segments
             ext_coords = np.asarray(poly.exterior.coords, dtype=np.float64)
-            n_from_ext = self._append_ring_segments(ext_coords, segments)
-            nseg += n_from_ext
+            ext_segs = self._get_ring_segments(ext_coords)
+            if ext_segs.shape[0] > 0:
+                segments.append(ext_segs)
+                nseg += ext_segs.shape[0]
 
             # Interior rings (holes) segments
             for ring in poly.interiors:
                 int_coords = np.asarray(ring.coords, dtype=np.float64)
-                n_from_int = self._append_ring_segments(int_coords, segments)
-                nseg += n_from_int
+                int_segs = self._get_ring_segments(int_coords)
+                if int_segs.shape[0] > 0:
+                    segments.append(int_segs)
+                    nseg += int_segs.shape[0]
 
             segs_per_poly.append(nseg)
 
-        segment_count = len(segments)
+        segment_count = sum(s.shape[0] for s in segments)
         if segment_count == 0:
             attrib: dict[str, object] = {
                 "x": length_params("x", [], CtxLenType.Pos),
@@ -88,7 +93,7 @@ class RasterizedPolygonOutlinesElement(Element):
             super().__init__("dapple:rasterized_polygon_outlines", attrib)
             return
 
-        seg_np = np.stack(segments, axis=0).astype(np.float32)  # (S, 2, 2)
+        seg_np = np.concatenate(segments, axis=0).astype(np.float32)  # (S, 2, 2)
         x_vals = seg_np[:, :, 0].reshape(-1)
         y_vals = seg_np[:, :, 1].reshape(-1)
 
@@ -234,23 +239,23 @@ class RasterizedPolygonOutlinesElement(Element):
             )
 
     @staticmethod
-    def _append_ring_segments(coords: np.ndarray, segments: List[np.ndarray]) -> int:
+    def _get_ring_segments(coords: np.ndarray) -> np.ndarray:
         """
-        Append segments for a closed ring defined by `coords`.
+        Get segments for a closed ring defined by `coords`.
         coords should include the closing point (last == first).
-        Returns number of segments appended.
+        Returns (N, 2, 2) array of segments.
         """
         if coords.ndim != 2 or coords.shape[1] != 2 or coords.shape[0] < 2:
-            return 0
+            return np.zeros((0, 2, 2), dtype=np.float64)
 
-        # Build segments between consecutive points; include closing edge if present
-        n = coords.shape[0]
-        count = 0
-        for i in range(n - 1):
-            p0 = coords[i]
-            p1 = coords[i + 1]
-            if np.allclose(p0, p1):
-                continue
-            segments.append(np.stack([p0, p1], axis=0))
-            count += 1
-        return count
+        p0 = coords[:-1]
+        p1 = coords[1:]
+
+        # Filter zero length segments
+        d = np.abs(p0 - p1)
+        mask = np.any(d > 1e-8, axis=1)
+
+        p0 = p0[mask]
+        p1 = p1[mask]
+
+        return np.stack([p0, p1], axis=1)
