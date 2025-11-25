@@ -1,11 +1,13 @@
-import numpy as np
 import base64
 from io import BytesIO
+from typing import override
+
+import numpy as np
 from PIL import Image
+
+from ..coordinates import AbsLengths, AbsTransform, CtxLenType, ResolveContext
 from ..elements import Element
 from ..scales import length_params
-from ..coordinates import CtxLenType, ResolveContext, AbsLengths, AbsTransform
-from typing import override
 
 
 def image(x, y, width, height, data):

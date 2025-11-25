@@ -241,13 +241,6 @@ def render_triangles_to_texture(
 
     T = tri.shape[0]
 
-    # Normalize positions to NDC [-1, 1]
-    x0, x1 = float(x_range[0]), float(x_range[1])
-    y0, y1 = float(y_range[0]), float(y_range[1])
-    tri_ndc = np.empty_like(tri, dtype=np.float32)
-    tri_ndc[..., 0] = 2.0 * (tri[..., 0] - x0) / (x1 - x0) - 1.0
-    tri_ndc[..., 1] = 2.0 * (tri[..., 1] - y0) / (y1 - y0) - 1.0
-
     # Colors per triangle -> per vertex
     if colors is None:
         cols = np.ones((T, 4), dtype=np.float32)
@@ -261,20 +254,23 @@ def render_triangles_to_texture(
         if cols.shape != (T, 4):
             raise ValueError("colors must have shape (T, 4) or (T, 3)")
 
-    cols_per_vertex = np.repeat(cols[:, None, :], 3, axis=1)  # (T, 3, 4)
+    # VBO for positions (no copy if contiguous)
+    vbo_pos = ctx.buffer(tri.reshape(-1, 2).astype(np.float32).tobytes())
 
-    # Interleave positions and colors per vertex
-    vertex_data = np.concatenate([tri_ndc, cols_per_vertex], axis=2)  # (T, 3, 6)
-    vertex_data = vertex_data.reshape((-1, 6)).astype(np.float32)
-    vbo = ctx.buffer(vertex_data.tobytes())
+    # VBO for colors (repeat per vertex)
+    vbo_col = ctx.buffer(np.repeat(cols, 3, axis=0).astype(np.float32).tobytes())
 
     vertex_shader = """
     #version 330
+    uniform vec2 u_x_range;
+    uniform vec2 u_y_range;
     in vec2 in_position;
     in vec4 in_color;
     out vec4 v_color;
     void main() {
-        gl_Position = vec4(in_position, 0.0, 1.0);
+        float x = 2.0 * (in_position.x - u_x_range.x) / (u_x_range.y - u_x_range.x) - 1.0;
+        float y = 2.0 * (in_position.y - u_y_range.x) / (u_y_range.y - u_y_range.x) - 1.0;
+        gl_Position = vec4(x, y, 0.0, 1.0);
         v_color = in_color;
     }
     """
@@ -289,7 +285,15 @@ def render_triangles_to_texture(
     """
 
     program = ctx.program(vertex_shader=vertex_shader, fragment_shader=fragment_shader)
-    vao = ctx.vertex_array(program, [(vbo, "2f 4f", "in_position", "in_color")])
+    program["u_x_range"].value = (float(x_range[0]), float(x_range[1]))
+    program["u_y_range"].value = (float(y_range[0]), float(y_range[1]))
+    vao = ctx.vertex_array(
+        program,
+        [
+            (vbo_pos, "2f", "in_position"),
+            (vbo_col, "4f", "in_color"),
+        ],
+    )
 
     # Render
     framebuffer.use()
@@ -306,7 +310,8 @@ def render_triangles_to_texture(
 
     # Cleanup
     vao.release()
-    vbo.release()
+    vbo_pos.release()
+    vbo_col.release()
     program.release()
     framebuffer.release()
     texture.release()

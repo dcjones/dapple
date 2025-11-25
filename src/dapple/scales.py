@@ -705,16 +705,27 @@ class ScaleContinuous(Scale, ABC):
 
     @override
     def fit_values(self, values: UnscaledValues) -> None:
-        for value in values.values:
-            value = self._cast_value(value)
-            if self.min is None:
-                self.min = value
-            elif value < self.min:
-                self.min = value
-            if self.max is None:
-                self.max = value
-            elif value > self.max:
-                self.max = value
+        vals = values.values
+        if isinstance(vals, np.ndarray):
+            if vals.size == 0:
+                return
+            vmin = vals.min()
+            vmax = vals.max()
+            if self.min is None or vmin < self.min:
+                self.min = vmin
+            if self.max is None or vmax > self.max:
+                self.max = vmax
+        else:
+            for value in vals:
+                value = self._cast_value(value)
+                if self.min is None:
+                    self.min = value
+                elif value < self.min:
+                    self.min = value
+                if self.max is None:
+                    self.max = value
+                elif value > self.max:
+                    self.max = value
 
     @override
     def finalize(self) -> None:
@@ -861,15 +872,21 @@ class ScaleContinuousColor(ScaleContinuous):
         )
 
         span = self.max - self.min
-        scaled_values = self.colormap(
-            np.fromiter(
-                (
-                    (self._cast_value(value) - self.min) / span
-                    for value in values.values
-                ),
+        vals = values.values
+        if isinstance(vals, np.ndarray):
+            vals_arr = vals.astype(np.float64)
+        else:
+            vals_arr = np.fromiter(
+                (self._cast_value(value) for value in vals),
                 dtype=np.float64,
             )
-        )
+
+        if span != 0:
+            vals_arr = (vals_arr - self.min) / span
+        else:
+            vals_arr[:] = 0.0
+
+        scaled_values = self.colormap(vals_arr)
 
         return Colors(scaled_values)
 
@@ -893,9 +910,13 @@ class ScaleContinuousLength(ScaleContinuous):
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
         assert values.unit == self.unit
 
-        scaled_values = np.fromiter(
-            (self._cast_value(value) for value in values.values), dtype=np.float64
-        )
+        vals = values.values
+        if isinstance(vals, np.ndarray):
+            scaled_values = vals.astype(np.float64)
+        else:
+            scaled_values = np.fromiter(
+                (self._cast_value(value) for value in vals), dtype=np.float64
+            )
 
         return CtxLengths(scaled_values, values.unit, values.typ)
 

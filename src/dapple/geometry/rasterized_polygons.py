@@ -67,25 +67,29 @@ class RasterizedPolygonsElement(Element):
         tris_per_poly: List[int] = []
         for poly in poly_list:
             if not isinstance(poly, _geom.Polygon):
+                tris_per_poly.append(0)
                 continue
 
             # Extract exterior coordinates (drop closing duplicate point)
             coords = np.asarray(poly.exterior.coords, dtype=np.float64)
             if coords.shape[0] < 4:
                 # fewer than 3 unique vertices
+                tris_per_poly.append(0)
                 continue
             coords = coords[:-1, :]  # drop repeated last=first
 
             if coords.shape[0] < 3:
+                tris_per_poly.append(0)
                 continue
 
             # Triangulate using mapbox-earcut
             tris = _triangulate_polygon_earcut(poly, coords)
-            if len(tris) == 0:
+            if tris.shape[0] == 0:
+                tris_per_poly.append(0)
                 continue
 
-            triangles.extend(tris)
-            tris_per_poly.append(len(tris))
+            triangles.append(tris)
+            tris_per_poly.append(tris.shape[0])
 
         if len(triangles) == 0:
             # Nothing to draw; still create an empty container with proper attributes
@@ -101,7 +105,7 @@ class RasterizedPolygonsElement(Element):
             super().__init__("dapple:rasterized_polygons", attrib)
             return
 
-        triangles_np = np.stack(triangles, axis=0).astype(np.float32)  # (T, 3, 2)
+        triangles_np = np.concatenate(triangles, axis=0).astype(np.float32)  # (T, 3, 2)
         triangle_count = int(triangles_np.shape[0])
         x_vals = triangles_np[:, :, 0].reshape(-1)
         y_vals = triangles_np[:, :, 1].reshape(-1)
@@ -352,7 +356,7 @@ def _colors_for_triangles(
     )
 
 
-def _triangulate_polygon_earcut(polygon, coords: np.ndarray) -> List[np.ndarray]:
+def _triangulate_polygon_earcut(polygon, coords: np.ndarray) -> np.ndarray:
     """
     Triangulate a polygon using mapbox-earcut (fast C++ implementation).
 
@@ -361,7 +365,7 @@ def _triangulate_polygon_earcut(polygon, coords: np.ndarray) -> List[np.ndarray]
         coords: (N, 2) array of exterior coordinates (already without closing duplicate)
 
     Returns:
-        List of triangle arrays, each of shape (3, 2)
+        (N, 3, 2) array of triangle vertices
     """
     # Keep coordinates in (N, 2) shape for earcut
     vertices = coords.astype(np.float64)
@@ -388,14 +392,6 @@ def _triangulate_polygon_earcut(polygon, coords: np.ndarray) -> List[np.ndarray]
     indices = earcut.triangulate_float32(vertices, rings)
 
     if len(indices) == 0:
-        return []
+        return np.zeros((0, 3, 2), dtype=np.float64)
 
-    # Convert indices to list of triangle coordinate arrays
-    triangles = []
-    for i in range(0, len(indices), 3):
-        if i + 2 < len(indices):
-            tri_indices = indices[i : i + 3]
-            triangle = vertices[tri_indices]
-            triangles.append(triangle)
-
-    return triangles
+    return vertices[indices.reshape(-1, 3)]
