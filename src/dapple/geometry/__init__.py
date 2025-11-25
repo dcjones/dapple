@@ -5,7 +5,7 @@ from .histogram import histogram
 from .histogram2d import histogram2d
 from .image import image
 from .key import key
-from .labels import title, xlabel, xticklabels, ylabel, yticklabels
+from .labels import labels, title, xlabel, xticklabels, ylabel, yticklabels
 from .lines import density, line, lines, segments
 from .points import points
 from .rasterized_heatmap import rasterized_heatmap

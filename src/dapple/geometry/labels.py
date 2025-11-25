@@ -1,22 +1,24 @@
-from ..elements import Element, VectorizedElement, RawText
+from typing import final, override
+
+import numpy as np
+
+from ..config import ConfigKey
 from ..coordinates import (
     AbsLengths,
     CoordBounds,
-    ResolveContext,
+    CtxLenType,
     Lengths,
     Resolvable,
+    ResolveContext,
     Serializable,
     mm,
-    vw,
     vh,
+    vw,
 )
+from ..elements import Element, RawText, VectorizedElement
 from ..layout import Position
-from ..config import ConfigKey
+from ..scales import Scale, ScaleSet, color_params, length_params
 from ..textextents import Font
-from ..scales import ScaleSet, Scale
-
-from typing import override, final
-import numpy as np
 
 
 class RotateTransforms(Resolvable, Serializable):
@@ -714,3 +716,108 @@ class YTickLabels(Element):
 
 def yticklabels(*args, **kwargs):
     return YTickLabels(*args, **kwargs)
+
+
+class TextLabels(VectorizedElement):
+    def __init__(self, attrib: dict[str, object], texts):
+        args = []
+        if isinstance(texts, str):
+            args.append(RawText(texts))
+        elif hasattr(texts, "__iter__"):
+            for t in texts:
+                args.append(RawText(str(t)))
+        else:
+            args.append(RawText(str(texts)))
+        super().__init__("text", attrib, *args)
+
+    @override
+    def similar(self, attrib: dict[str, object]) -> "TextLabels":
+        return TextLabels(attrib, getattr(self, "text", []))
+
+    @override
+    def update_bounds(self, bounds: CoordBounds):
+        x = self.attrib.get("x")
+        y = self.attrib.get("y")
+
+        if not isinstance(x, (Lengths, AbsLengths)) or not isinstance(
+            y, (Lengths, AbsLengths)
+        ):
+            return
+
+        texts = self.text if self.text is not None else []
+
+        n_x = len(x)
+        n_y = len(y)
+        n_t = len(texts)
+
+        if n_t == 0:
+            return
+
+        n = max(n_x, n_y, n_t)
+
+        font_family = self.attrib.get("font-family")
+        font_size = self.attrib.get("font-size")
+        anchor = self.attrib.get("text-anchor", "start")
+        baseline = self.attrib.get("dominant-baseline", "auto")
+
+        assert isinstance(font_family, str)
+        assert isinstance(font_size, AbsLengths)
+
+        font = Font(font_family, font_size)
+
+        for i in range(n):
+            xi = x[i % n_x]
+            yi = y[i % n_y]
+            text = texts[i % n_t]
+
+            w, h, bl = font.get_extents_with_baseline(text)
+
+            # Horizontal alignment
+            dx_l, dx_r = mm(0), mm(0)
+            if anchor == "middle":
+                dx_l, dx_r = -0.5 * w, 0.5 * w
+            elif anchor == "end":
+                dx_l, dx_r = -w, mm(0)
+            else:  # start
+                dx_l, dx_r = mm(0), w
+
+            # Vertical alignment
+            dy_b, dy_t = mm(0), mm(0)
+            if baseline == "middle" or baseline == "central":
+                dy_b, dy_t = -0.5 * h, 0.5 * h
+            elif baseline == "hanging":
+                dy_b, dy_t = -h, mm(0)
+            else:  # auto / alphabetic
+                dy_t = bl
+                dy_b = -(h - bl)
+
+            bounds.update(xi + dx_l)
+            bounds.update(xi + dx_r)
+            bounds.update(yi + dy_b)
+            bounds.update(yi + dy_t)
+
+
+def labels(
+    x,
+    y,
+    text,
+    font_family=ConfigKey("labels_font_family"),
+    font_size=ConfigKey("labels_font_size"),
+    font_weight=ConfigKey("labels_font_weight"),
+    fill=ConfigKey("labels_fill"),
+    anchor="middle",
+    alignment_baseline="middle",
+):
+    return TextLabels(
+        {
+            "x": length_params("x", x, CtxLenType.Pos),
+            "y": length_params("y", y, CtxLenType.Pos),
+            "font-family": font_family,
+            "font-size": font_size,
+            "font-weight": font_weight,
+            "fill": color_params("fill", fill),
+            "text-anchor": anchor,
+            "dominant-baseline": alignment_baseline,
+        },
+        text,
+    )

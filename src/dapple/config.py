@@ -1,12 +1,14 @@
-from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
-from pathlib import Path
 import os
 import tomllib
-from .colors import Colors, color, distinguishable_colors
-from .coordinates import AbsLengths, mm, cm, pt, inch
-from .layout import Position
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Optional
+
 from cmap import Colormap
+
+from .colors import Colors, color, distinguishable_colors
+from .coordinates import AbsLengths, cm, inch, mm, pt
+from .layout import Position
 
 
 @dataclass
@@ -140,6 +142,12 @@ class Config:
     label_font_size: AbsLengths = field(default_factory=lambda: mm(3.5))
     label_font_weight: str = "normal"
     label_fill: Colors = field(default_factory=lambda: color("#333333"))
+
+    # Labels geometry configuration
+    labels_font_family: str = "DejaVu Sans"
+    labels_font_size: AbsLengths = field(default_factory=lambda: mm(2.5))
+    labels_font_weight: str = "normal"
+    labels_fill: Colors = field(default_factory=lambda: color("#333333"))
 
     # Title configuration
     title_font_family: str = "DejaVu Sans"
