@@ -1,12 +1,13 @@
-import numpy as np
 from typing import Iterable, List
 
-from ..elements import Element
-from ..scales import length_params, color_params
-from ..coordinates import CtxLenType, ResolveContext, AbsLengths, mm
-from ..config import ConfigKey
-from ..moderngl_utils import render_triangles_to_texture, calculate_dpi_size
+import numpy as np
+
 from ..colors import Colors
+from ..config import ConfigKey
+from ..coordinates import AbsLengths, CtxLenType, ResolveContext, mm
+from ..elements import Element
+from ..moderngl_utils import calculate_dpi_size, render_triangles_to_texture
+from ..scales import color_params, length_params
 from .image import ImageElement
 
 try:
@@ -367,7 +368,7 @@ def _triangulate_polygon_earcut(polygon, coords: np.ndarray) -> List[np.ndarray]
 
     # Handle holes if present
     # rings should contain cumulative end indices for each ring
-    rings = [len(coords)]  # End index of exterior ring
+    rings = np.array([len(coords)])  # End index of exterior ring
 
     if len(polygon.interiors) > 0:
         # Add hole coordinates
@@ -384,11 +385,7 @@ def _triangulate_polygon_earcut(polygon, coords: np.ndarray) -> List[np.ndarray]
             vertices = np.vstack([vertices, all_hole_coords])
 
     # Triangulate using earcut
-    try:
-        indices = earcut.triangulate_float64(vertices, rings)
-    except Exception:
-        # Fallback to empty triangulation on error
-        return []
+    indices = earcut.triangulate_float32(vertices, rings)
 
     if len(indices) == 0:
         return []
