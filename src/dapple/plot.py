@@ -211,6 +211,9 @@ class Plot(Element):
 
         # Resolve children
         ctx.scales = scaleset
+        if "size" not in ctx.coords:
+            ctx.coords["size"] = AbsCoordTransform(1.0, 0.0)
+
         svg_root = root.resolve(ctx)
 
         return svg_root

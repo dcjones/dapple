@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 
 from .colors import Colors
 from .config import ChooseTicksParams, ConfigKey
-from .coordinates import AbsLengths, CtxLengths, CtxLenType, Lengths
+from .coordinates import AbsLengths, CtxLengths, CtxLenType, Lengths, mm, LengthsSequence
 
 
 class UnscaledExpr(ABC):
@@ -921,6 +921,84 @@ class ScaleContinuousLength(ScaleContinuous):
         return CtxLengths(scaled_values, values.unit, values.typ)
 
 
+class ScaleContinuousSize(ScaleContinuous):
+    range_min: Lengths
+    range_max: Lengths
+
+    def __init__(
+        self,
+        range_min: Lengths = mm(1.0),
+        range_max: Lengths = mm(6.0),
+        unit: str = "size",
+        tick_coverage: TickCoverage | ConfigKey = ConfigKey("tick_coverage"),  # type: ignore[assignment]
+        choose_tick_params: ChooseTicksParams | ConfigKey = ConfigKey(  # type: ignore[assignment]
+            "tick_params"
+        ),
+    ):
+        self.range_min = range_min
+        self.range_max = range_max
+        super().__init__(unit, tick_coverage, choose_tick_params)
+
+    @override
+    def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
+        assert values.unit == self.unit
+        if self.min is None or self.max is None:
+            # Fallback for no values
+            return self.range_min
+
+        vals = values.values
+        if isinstance(vals, np.ndarray):
+            vals_arr = vals.astype(np.float64)
+        else:
+            vals_arr = np.fromiter(
+                (self._cast_value(value) for value in vals),
+                dtype=np.float64,
+            )
+
+        span = self.max - self.min
+        if span != 0:
+            norm_vals = (vals_arr - self.min) / span
+        else:
+            norm_vals = np.zeros_like(vals_arr)
+
+        # Linear interpolation: range_min + norm_vals * (range_max - range_min)
+        # We need to handle the broadcasting if norm_vals is an array.
+        # LengthsMulOp(norm_vals, (self.range_max - self.range_min)) doesn't work directly if norm_vals is an array.
+        # However, we can use the resolve logic or implement it here.
+
+        results: list[Lengths] = []
+        range_diff = self.range_max - self.range_min
+        for v in norm_vals:
+            results.append(self.range_min + float(v) * range_diff)
+
+        if not results:
+            return self.range_min
+
+        return self._combine_lengths(results)
+
+    def _combine_lengths(self, lengths: list[Lengths]) -> Lengths:
+        if not lengths:
+            return mm(0)
+        return LengthsSequence(lengths)
+
+    @override
+    def ticks(self) -> tuple[NDArray[np.str_], Lengths | Colors]:
+        labels, ticks = super().ticks()
+        assert isinstance(ticks, CtxLengths)
+
+        # Scale the ticks to the range
+        span = self.max - self.min
+        if span != 0:
+            norm_ticks = (ticks.values - self.min) / span
+        else:
+            norm_ticks = np.zeros_like(ticks.values)
+
+        range_diff = self.range_max - self.range_min
+        scaled_ticks = [self.range_min + float(v) * range_diff for v in norm_ticks]
+
+        return labels, self._combine_lengths(scaled_ticks)
+
+
 def xcontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
     return ScaleContinuousLength("x", *args, **kwargs)
 
@@ -929,8 +1007,8 @@ def ycontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
     return ScaleContinuousLength("y", *args, **kwargs)
 
 
-def sizecontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
-    return ScaleContinuousLength("size", *args, **kwargs)
+def sizecontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousSize:
+    return ScaleContinuousSize(*args, **kwargs)
 
 
 _default_scales: dict[str, tuple[Callable[..., Scale] | None, Callable[..., Scale]]] = {

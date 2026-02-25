@@ -214,16 +214,12 @@ class AbsLengths(Lengths, Serializable):
 
     values: NDArray[np.float64]
 
-    def __init__(self, values: np.ndarray):
+    def __init__(self, values: np.ndarray, is_scalar: bool = False):
         if len(values) == 0:
             self.values = np.array([], dtype=np.float64)
             return
 
-        alleq = True
-        for value in values:
-            alleq &= value == values[0]
-
-        if alleq:
+        if is_scalar:
             self.values = np.array([values[0]], dtype=np.float64)
         else:
             self.values = values.astype(np.float64)
@@ -243,7 +239,7 @@ class AbsLengths(Lengths, Serializable):
 
     def __iter__(self):
         for value in self.values:
-            yield AbsLengths(np.array([value]))
+            yield AbsLengths(np.array([value]), is_scalar=True)
 
     @override
     def __getitem__(self, index) -> "AbsLengths":
@@ -253,7 +249,7 @@ class AbsLengths(Lengths, Serializable):
         """
         if isinstance(index, int):
             # For scalar indices, keep as 1D array with single element
-            return AbsLengths(np.array([self.values[index]]))
+            return AbsLengths(np.array([self.values[index]]), is_scalar=True)
         else:
             # For slices or other indices, use normal indexing
             return AbsLengths(self.values[index])
@@ -275,14 +271,14 @@ class AbsLengths(Lengths, Serializable):
         """
         Unary minimum.
         """
-        return AbsLengths(self.values.min(keepdims=True))
+        return AbsLengths(self.values.min(keepdims=True), is_scalar=True)
 
     @override
     def unmax(self) -> AbsLengths:
         """
         Unary maximum.
         """
-        return AbsLengths(self.values.max(keepdims=True))
+        return AbsLengths(self.values.max(keepdims=True), is_scalar=True)
 
     def repeat_scalar(self, n: int) -> "AbsLengths":
         self.assert_scalar()
@@ -332,12 +328,12 @@ def abslengths(value, scale: float = 1.0) -> AbsLengths:
 
 @abslengths.register(float)
 def _(value, scale: float = 1.0) -> AbsLengths:
-    return AbsLengths(np.array([value * scale], dtype=np.float64))
+    return AbsLengths(np.array([value * scale], dtype=np.float64), is_scalar=True)
 
 
 @abslengths.register(int)
 def _(value, scale: float = 1.0) -> AbsLengths:
-    return AbsLengths(np.array([value * scale], dtype=np.float64))
+    return AbsLengths(np.array([value * scale], dtype=np.float64), is_scalar=True)
 
 
 @abslengths.register(list)
@@ -380,7 +376,13 @@ class CtxLengths(Lengths):
     unit: str
     typ: CtxLenType
 
-    def __init__(self, values: NDArray[np.float64], unit: str, typ: CtxLenType):
+    def __init__(
+        self,
+        values: NDArray[np.float64],
+        unit: str,
+        typ: CtxLenType,
+        is_scalar: bool = False,
+    ):
         self.unit = unit
         self.typ = typ
 
@@ -389,11 +391,7 @@ class CtxLengths(Lengths):
             return
 
         assert len(values) > 0
-        alleq = True
-        for value in values:
-            alleq &= value == values[0]
-
-        if alleq:
+        if is_scalar:
             self.values = np.array([values[0]], dtype=np.float64)
         else:
             self.values = values.astype(np.float64)
@@ -419,7 +417,9 @@ class CtxLengths(Lengths):
         """
         if isinstance(index, int):
             # For scalar indices, keep as 1D array with single element
-            return CtxLengths(np.array([self.values[index]]), self.unit, self.typ)
+            return CtxLengths(
+                np.array([self.values[index]]), self.unit, self.typ, is_scalar=True
+            )
         else:
             # For slices or other indices, use normal indexing
             return CtxLengths(self.values[index], self.unit, self.typ)
@@ -440,14 +440,18 @@ class CtxLengths(Lengths):
         """
         Unary minimum.
         """
-        return CtxLengths(self.values.min(keepdims=True), self.unit, self.typ)
+        return CtxLengths(
+            self.values.min(keepdims=True), self.unit, self.typ, is_scalar=True
+        )
 
     @override
     def unmax(self) -> CtxLengths:
         """
         Unary maximum.
         """
-        return CtxLengths(self.values.max(keepdims=True), self.unit, self.typ)
+        return CtxLengths(
+            self.values.max(keepdims=True), self.unit, self.typ, is_scalar=True
+        )
 
     @override
     def assert_scalar(self):
@@ -510,12 +514,16 @@ def ctxlengths(value, unit: str, typ: CtxLenType, scale: float = 1.0) -> CtxLeng
 
 @ctxlengths.register(float)
 def _(value, unit: str, typ: CtxLenType, scale: float = 1.0) -> CtxLengths:
-    return CtxLengths(np.array([value * scale], dtype=np.float64), unit, typ)
+    return CtxLengths(
+        np.array([value * scale], dtype=np.float64), unit, typ, is_scalar=True
+    )
 
 
 @ctxlengths.register(int)
 def _(value, unit: str, typ: CtxLenType, scale: float = 1.0) -> CtxLengths:
-    return CtxLengths(np.array([value * scale], dtype=np.float64), unit, typ)
+    return CtxLengths(
+        np.array([value * scale], dtype=np.float64), unit, typ, is_scalar=True
+    )
 
 
 @ctxlengths.register(list)
@@ -842,6 +850,37 @@ class LengthsUnaryMaxOp(Lengths):
 
 
 @dataclass
+class LengthsSequence(Lengths):
+    items: list[Lengths]
+
+    def __len__(self) -> int:
+        return len(self.items)
+
+    def __getitem__(self, idx: int) -> Lengths:
+        return self.items[idx]
+
+    @override
+    def resolve(self, ctx: ResolveContext) -> AbsLengths:
+        resolved_vals = [item.resolve(ctx).values for item in self.items]
+        return AbsLengths(np.concatenate(resolved_vals))
+
+    @override
+    def unmin(self) -> Lengths:
+        return LengthsUnaryMinOp(self)
+
+    @override
+    def unmax(self) -> Lengths:
+        return LengthsUnaryMaxOp(self)
+
+    @override
+    def units(self) -> set[str]:
+        u = set()
+        for item in self.items:
+            u.update(item.units())
+        return u
+
+
+@dataclass
 class AbsCoordTransform(Resolvable):
     scale: float
     translate: float
@@ -1051,6 +1090,11 @@ class CoordBounds:
                 case LengthsUnaryMaxOp():
                     partial_subterm = CoordConstraint(x=x, xv=xv, y=y, yv=yv, mm=mm)
                     for subterm in term.a:
+                        self.update(subterm, factor, partial_subterm)
+
+                case LengthsSequence():
+                    partial_subterm = CoordConstraint(x=x, xv=xv, y=y, yv=yv, mm=mm)
+                    for subterm in term.items:
                         self.update(subterm, factor, partial_subterm)
 
                 case _:
