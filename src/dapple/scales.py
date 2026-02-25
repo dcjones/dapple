@@ -14,7 +14,14 @@ from numpy.typing import NDArray
 
 from .colors import Colors
 from .config import ChooseTicksParams, ConfigKey
-from .coordinates import AbsLengths, CtxLengths, CtxLenType, Lengths, mm, LengthsSequence
+from .coordinates import (
+    AbsLengths,
+    CtxLengths,
+    CtxLenType,
+    Lengths,
+    LengthsSequence,
+    mm,
+)
 
 
 class UnscaledExpr(ABC):
@@ -927,8 +934,8 @@ class ScaleContinuousSize(ScaleContinuous):
 
     def __init__(
         self,
-        range_min: Lengths = mm(1.0),
-        range_max: Lengths = mm(6.0),
+        range_min: Lengths = mm(0.2),
+        range_max: Lengths = mm(1.0),
         unit: str = "size",
         tick_coverage: TickCoverage | ConfigKey = ConfigKey("tick_coverage"),  # type: ignore[assignment]
         choose_tick_params: ChooseTicksParams | ConfigKey = ConfigKey(  # type: ignore[assignment]

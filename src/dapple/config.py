@@ -207,29 +207,38 @@ class Config:
             return key.transform(value)
         return value
 
-    def replace_keys(self, obj: object):
+    def replace_keys(self, obj: object, visited: set[int] | None = None):
         """
         General puprose method to replace ConfigKey fields in any object with
         their associated value in the Config.
         """
 
+        if visited is None:
+            visited = set()
+
+        if id(obj) in visited:
+            return obj
+
         if isinstance(obj, ConfigKey):
             return self.get(obj)
-        elif hasattr(obj, "__dict__"):
+
+        visited.add(id(obj))
+
+        if hasattr(obj, "__dict__"):
             for attr_name, attr_value in obj.__dict__.items():
                 if isinstance(attr_value, ConfigKey):
                     setattr(obj, attr_name, self.get(attr_value))
                 else:
-                    self.replace_keys(attr_value)
+                    self.replace_keys(attr_value, visited)
         elif isinstance(obj, (list, tuple)):
             for item in obj:
-                self.replace_keys(item)
+                self.replace_keys(item, visited)
         elif isinstance(obj, dict):
             for key, value in obj.items():
                 if isinstance(value, ConfigKey):
                     obj[key] = self.get(value)
                 else:
-                    self.replace_keys(value)
+                    self.replace_keys(value, visited)
         return obj
 
 
