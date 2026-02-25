@@ -892,7 +892,7 @@ class ScaleContinuousColor(ScaleContinuous):
 
 
 def colorcontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousColor:
-    return ScaleContinuousColor(*args, **kwargs)
+    return ScaleContinuousColor("color", *args, **kwargs)
 
 
 class ScaleContinuousLength(ScaleContinuous):

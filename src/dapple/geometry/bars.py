@@ -310,7 +310,7 @@ def horizontal_bars(
         raise ValueError("x parameter is required")
 
     # Prepare y position and height (default height is 1.0 in data coordinates)
-    y_pos, bar_height = _prepare_bar_data(y, ymin, ymax, 1.0, "y")
+    y_pos, bar_height = _prepare_bar_data(y, ymin, ymax, cyv(0.8), "y")
 
     # Convert x to array
     x_array = np.asarray(x)
