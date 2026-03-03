@@ -683,13 +683,14 @@ class ScaleContinuous(Scale, ABC):
         choose_tick_params: ChooseTicksParams | ConfigKey = ConfigKey(  # type: ignore[assignment]
             "tick_params"
         ),
+        min: float | None = None,
+        max: float | None = None,
     ):
-        # TODO: We should be able to pass in min and max
-        # and also have a `fixed` argument like discrete scales.
+        # TODO: and also have a `fixed` argument like discrete scales.
 
         self._unit = unit
-        self.min = None
-        self.max = None
+        self.min = np.float64(min) if min is not None else None
+        self.max = np.float64(max) if max is not None else None
         self.tick_coverage = tick_coverage
         self.choose_ticks_params = choose_tick_params
         self._ticks = None
@@ -854,6 +855,7 @@ class ScaleContinuous(Scale, ABC):
 
 class ScaleContinuousColor(ScaleContinuous):
     colormap: Colormap | ConfigKey
+    mid: np.float64 | None
 
     def __init__(
         self,
@@ -863,11 +865,27 @@ class ScaleContinuousColor(ScaleContinuous):
         choose_tick_params: ChooseTicksParams | ConfigKey = ConfigKey(  # type: ignore[assignment]
             "tick_params"
         ),
+        min: float | None = None,
+        max: float | None = None,
+        mid: float | None = None,
     ):
         if not isinstance(colormap, ConfigKey):
             colormap = Colormap(colormap)
         self.colormap = colormap
-        super().__init__(unit, tick_coverage, choose_tick_params)
+        self.mid = np.float64(mid) if mid is not None else None
+        super().__init__(unit, tick_coverage, choose_tick_params, min=min, max=max)
+        self._apply_mid()
+
+    @override
+    def fit_values(self, values: UnscaledValues) -> None:
+        super().fit_values(values)
+        self._apply_mid()
+
+    def _apply_mid(self) -> None:
+        if self.mid is not None and self.min is not None and self.max is not None:
+            dist = max(abs(self.max - self.mid), abs(self.min - self.mid))
+            self.min = self.mid - dist
+            self.max = self.mid + dist
 
     @override
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
@@ -910,8 +928,10 @@ class ScaleContinuousLength(ScaleContinuous):
         choose_tick_params: ChooseTicksParams | ConfigKey = ConfigKey(  # type: ignore[assignment]
             "tick_params"
         ),
+        min: float | None = None,
+        max: float | None = None,
     ):
-        super().__init__(unit, tick_coverage, choose_tick_params)
+        super().__init__(unit, tick_coverage, choose_tick_params, min=min, max=max)
 
     @override
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
@@ -941,10 +961,12 @@ class ScaleContinuousSize(ScaleContinuous):
         choose_tick_params: ChooseTicksParams | ConfigKey = ConfigKey(  # type: ignore[assignment]
             "tick_params"
         ),
+        min: float | None = None,
+        max: float | None = None,
     ):
         self.range_min = range_min
         self.range_max = range_max
-        super().__init__(unit, tick_coverage, choose_tick_params)
+        super().__init__(unit, tick_coverage, choose_tick_params, min=min, max=max)
 
     @override
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
