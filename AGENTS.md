@@ -21,7 +21,7 @@ But elements can also be appended after the plot is instantiated, like:
 
 - **Run tests**: `uv run pytest`
 - **Install dependencies**: `uv sync`
-- **Run Python with project dependencies**: `uv run python`
+- **Run Python with project dependencies**: Use `uv run python ...` instead of `python ...`
 
 # Core components
 
