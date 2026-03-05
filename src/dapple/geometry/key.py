@@ -1,27 +1,28 @@
-from ..elements import Element, VectorizedElement, pad, Path
+from typing import cast, override
+
+import numpy as np
+
+from ..colors import Colors
+from ..config import ConfigKey
 from ..coordinates import (
     AbsLengths,
+    CoordTransform,
     CtxLengths,
     CtxLenType,
-    CoordTransform,
+    Lengths,
     Resolvable,
     ResolveContext,
-    Lengths,
+    cy,
+    mm,
     vh,
     vhv,
     vw,
-    cy,
-    mm,
 )
+from ..elements import Element, Path, VectorizedElement, pad
 from ..layout import Position
-from ..config import ConfigKey
+from ..scales import ScaleContinuousColor, ScaleDiscreteColor
 from ..textextents import Font
-from ..colors import Colors
-from ..scales import ScaleDiscreteColor, ScaleContinuousColor
 from .bars import Bar
-
-from typing import override, cast
-import numpy as np
 
 
 class Key(Element):
@@ -110,9 +111,14 @@ class Key(Element):
         square_size_val = square_size.scalar_value()
         spacing_val = spacing.scalar_value()
 
+        # Reverse so the first stack segment (bottom of chart) appears at the
+        # bottom of the key, matching the visual stacking order.
+        labels = self._labels[::-1]
+        colors = Colors(self._colors.values[::-1, :])
+
         # Create arrays for vectorized rendering
         y_positions_vals = []
-        for i in range(len(self._labels)):
+        for i in range(len(labels)):
             y_positions_vals.append(current_y_val)
             current_y_val += square_size_val + spacing_val
 
@@ -129,13 +135,13 @@ class Key(Element):
                     "y": y_positions,
                     "width": square_size,
                     "height": square_size,
-                    "fill": self._colors,
+                    "fill": colors,
                 },
             )
         )
 
         # Draw labels - text content cannot be easily vectorized, so use individual elements
-        for i, label in enumerate(self._labels):
+        for i, label in enumerate(labels):
             text_element = Element(
                 "text",
                 {
