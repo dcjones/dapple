@@ -180,18 +180,148 @@ def lines(
         return line(x, y, color, width)
 
 
-def segments(x1, y1, x2, y2, color=ConfigKey("linecolor")) -> Element:
-    return VectorizedElement(
-        "line",
-        {
+class SegmentsElement(Element):
+    """
+    Element representing one or more line segments, optionally with arrowheads.
+    """
+
+    def __init__(
+        self,
+        x1,
+        y1,
+        x2,
+        y2,
+        color=ConfigKey("linecolor"),
+        stroke_width=ConfigKey("linestroke"),
+        arrow=False,
+    ):
+        super().__init__("dapple:segments")
+        self.attrib = {
             "x1": length_params("x", x1, CtxLenType.Pos),
             "y1": length_params("y", y1, CtxLenType.Pos),
             "x2": length_params("x", x2, CtxLenType.Pos),
             "y2": length_params("y", y2, CtxLenType.Pos),
             "stroke": color_params("color", color),
-            "stroke-width": ConfigKey("linestroke"),
-        },
-    )
+            "stroke-width": stroke_width,
+            "arrow": arrow,
+        }
+
+    @override
+    def resolve(self, ctx: ResolveContext) -> Element:
+        res = resolve(self.attrib, ctx)
+        x1 = res["x1"]
+        y1 = res["y1"]
+        x2 = res["x2"]
+        y2 = res["y2"]
+        stroke = res["stroke"]
+        stroke_width = res["stroke-width"]
+        arrow = res["arrow"]
+
+        assert isinstance(x1, AbsLengths)
+        assert isinstance(y1, AbsLengths)
+        assert isinstance(x2, AbsLengths)
+        assert isinstance(y2, AbsLengths)
+
+        main_line = VectorizedElement(
+            "line",
+            {
+                "x1": x1,
+                "y1": y1,
+                "x2": x2,
+                "y2": y2,
+                "stroke": stroke,
+                "stroke-width": stroke_width,
+            },
+        )
+
+        if arrow is False:
+            return main_line
+
+        # Calculate arrowheads in absolute coordinates (mm)
+        # Handle broadcasting to common length
+        nels = max(len(x1), len(y1), len(x2), len(y2))
+
+        def _get_values(l: AbsLengths) -> np.ndarray:
+            if len(l) == nels:
+                return l.values
+            return np.repeat(l.values, nels)
+
+        vx1 = _get_values(x1)
+        vy1 = _get_values(y1)
+        vx2 = _get_values(x2)
+        vy2 = _get_values(y2)
+
+        dx = vx2 - vx1
+        dy = vy2 - vy1
+        length = np.sqrt(dx**2 + dy**2)
+
+        # Avoid division by zero
+        mask = length > 1e-6
+        ux = np.zeros_like(dx)
+        uy = np.zeros_like(dy)
+        ux[mask] = dx[mask] / length[mask]
+        uy[mask] = dy[mask] / length[mask]
+
+        # Arrowhead parameters
+        arrow_len = 2.0  # 2mm
+        angle = np.pi / 6  # 30 degrees
+        ca = np.cos(angle)
+        sa = np.sin(angle)
+
+        # Arrowhead leg 1
+        lx1 = vx2 - arrow_len * (ux * ca - uy * sa)
+        ly1 = vy2 - arrow_len * (ux * sa + uy * ca)
+
+        # Arrowhead leg 2
+        lx2 = vx2 - arrow_len * (ux * ca + uy * sa)
+        ly2 = vy2 - arrow_len * (-ux * sa + uy * ca)
+
+        # If arrow is a vector, mask the legs
+        if isinstance(arrow, (np.ndarray, list)):
+            arrow_mask = np.asarray(arrow)
+            if arrow_mask.shape != (nels,):
+                arrow_mask = np.broadcast_to(arrow_mask, (nels,))
+            
+            final_mask = mask & arrow_mask
+            lx1[~final_mask] = vx2[~final_mask]
+            ly1[~final_mask] = vy2[~final_mask]
+            lx2[~final_mask] = vx2[~final_mask]
+            ly2[~final_mask] = vy2[~final_mask]
+        else:
+            # Scalar arrow=True
+            lx1[~mask] = vx2[~mask]
+            ly1[~mask] = vy2[~mask]
+            lx2[~mask] = vx2[~mask]
+            ly2[~mask] = vy2[~mask]
+
+        leg1 = VectorizedElement(
+            "line",
+            {
+                "x1": x2,
+                "y1": y2,
+                "x2": AbsLengths(lx1),
+                "y2": AbsLengths(ly1),
+                "stroke": stroke,
+                "stroke-width": stroke_width,
+            },
+        )
+        leg2 = VectorizedElement(
+            "line",
+            {
+                "x1": x2,
+                "y1": y2,
+                "x2": AbsLengths(lx2),
+                "y2": AbsLengths(ly2),
+                "stroke": stroke,
+                "stroke-width": stroke_width,
+            },
+        )
+
+        return Element("g", {}, main_line, leg1, leg2)
+
+
+def segments(x1, y1, x2, y2, color=ConfigKey("linecolor"), arrow=False) -> Element:
+    return SegmentsElement(x1, y1, x2, y2, color, ConfigKey("linestroke"), arrow)
 
 
 def density(

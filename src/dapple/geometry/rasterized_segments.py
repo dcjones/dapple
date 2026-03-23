@@ -23,6 +23,7 @@ def rasterized_segments(
     color=ConfigKey("linecolor"),
     stroke_width=ConfigKey("linestroke"),
     dpi=ConfigKey("rasterize_dpi"),
+    arrow=False,
 ) -> Element:
     """
     Create a rasterized collection of line segments rendered with ModernGL.
@@ -35,11 +36,12 @@ def rasterized_segments(
         color: Segment colors (scalar or per-segment).
         stroke_width: Segment stroke width in millimeters.
         dpi: Resolution (dots per inch) for rasterization.
+        arrow: Whether to draw arrowheads at the end of each segment.
 
     Returns:
         RasterizedSegmentsElement configured with the provided data.
     """
-    return RasterizedSegmentsElement(x1, y1, x2, y2, color, stroke_width, dpi)
+    return RasterizedSegmentsElement(x1, y1, x2, y2, color, stroke_width, dpi, arrow)
 
 
 class RasterizedSegmentsElement(Element):
@@ -47,7 +49,7 @@ class RasterizedSegmentsElement(Element):
     Element that rasterizes sets of line segments into an image using ModernGL.
     """
 
-    def __init__(self, x1, y1, x2, y2, color, stroke_width, dpi):
+    def __init__(self, x1, y1, x2, y2, color, stroke_width, dpi, arrow=False):
         attrib: dict[str, object] = {
             "x1": length_params("x", x1, CtxLenType.Pos),
             "y1": length_params("y", y1, CtxLenType.Pos),
@@ -56,6 +58,7 @@ class RasterizedSegmentsElement(Element):
             "color": color_params("color", color),
             "stroke-width": stroke_width,
             "dpi": dpi,
+            "arrow": arrow,
         }
         super().__init__("dapple:rasterized_segments", attrib)
 
@@ -70,6 +73,7 @@ class RasterizedSegmentsElement(Element):
         color = resolved.attrib["color"]
         stroke_w = resolved.attrib["stroke-width"]
         dpi = resolved.attrib["dpi"]
+        arrow = resolved.attrib["arrow"]
 
         assert isinstance(x1, AbsLengths)
         assert isinstance(y1, AbsLengths)
@@ -124,6 +128,8 @@ class RasterizedSegmentsElement(Element):
 
         p0 = p0[valid_mask]
         p1 = p1[valid_mask]
+        # Update nsegments and broadcast valid mask to other arrays if needed
+        # but here we only need valid_mask for color_array and later for arrows
         segment_count = p0.shape[0]
 
         if color.isscalar():
@@ -137,6 +143,54 @@ class RasterizedSegmentsElement(Element):
         color_array = color_array[valid_mask, :]
 
         segments = np.stack([p0, p1], axis=1)
+
+        if arrow is not False:
+            # Handle vectorized arrow
+            if isinstance(arrow, (np.ndarray, list)):
+                arrow_mask = np.asarray(arrow)
+                if arrow_mask.shape != (nsegments,):
+                    arrow_mask = np.broadcast_to(arrow_mask, (nsegments,))
+                arrow_mask = arrow_mask[valid_mask]
+            else:
+                arrow_mask = np.ones(segment_count, dtype=bool)
+
+            if np.any(arrow_mask):
+                # Calculate arrowheads
+                diff = p1 - p0
+                seg_lengths = np.linalg.norm(diff, axis=1, keepdims=True)
+                # seg_lengths > 1e-6 is already guaranteed by valid_mask
+                u = diff / seg_lengths
+
+                arrow_len = 2.0  # 2mm
+                angle = np.pi / 6  # 30 degrees
+                ca = np.cos(angle)
+                sa = np.sin(angle)
+
+                # Leg 1 unit vector
+                l1_u = np.column_stack(
+                    [u[:, 0] * ca - u[:, 1] * sa, u[:, 0] * sa + u[:, 1] * ca]
+                )
+                p1_l1 = p1 - arrow_len * l1_u
+
+                # Leg 2 unit vector
+                l2_u = np.column_stack(
+                    [u[:, 0] * ca + u[:, 1] * sa, -u[:, 0] * sa + u[:, 1] * ca]
+                )
+                p1_l2 = p1 - arrow_len * l2_u
+
+                # Filter by arrow_mask
+                p1_arr = p1[arrow_mask]
+                p1_l1_arr = p1_l1[arrow_mask]
+                p1_l2_arr = p1_l2[arrow_mask]
+                color_arr_arr = color_array[arrow_mask]
+
+                leg1_segs = np.stack([p1_arr, p1_l1_arr], axis=1)
+                leg2_segs = np.stack([p1_arr, p1_l2_arr], axis=1)
+
+                segments = np.concatenate([segments, leg1_segs, leg2_segs], axis=0)
+                color_array = np.concatenate(
+                    [color_array, color_arr_arr, color_arr_arr], axis=0
+                )
 
         stroke_mm = stroke_w.scalar_value()
         half_width_mm = stroke_mm * 0.5
