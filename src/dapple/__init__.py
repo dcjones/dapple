@@ -12,4 +12,5 @@ from .scales import (
     xdiscrete,
     ycontinuous,
     ydiscrete,
+    TickCoverage
 )
