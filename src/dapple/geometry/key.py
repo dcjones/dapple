@@ -181,7 +181,7 @@ class Key(Element):
         tick_labels, tick_positions = self._color_scale.ticks()
 
         # Create gradient definition
-        gradient_id = "key-gradient"
+        gradient_id = f"key-gradient-{id(self)}"
         gradient_height = vhv(1)  # Use full plot height
         spacing_val = spacing.scalar_value()
 

@@ -58,9 +58,9 @@ def test_key_continuous_color():
     # Should contain linear gradient
     assert "linearGradient" in svg_str
     assert "stop" in svg_str
-    assert "key-gradient" in svg_str
+    assert "key-gradient-" in svg_str
     # Should contain the gradient rectangle
-    assert 'fill="url(#key-gradient)"' in svg_str
+    assert 'fill="url(#key-gradient-' in svg_str
 
 
 def test_key_no_color():
@@ -82,7 +82,7 @@ def test_key_no_color():
     svg_str = buf.getvalue()
 
     # Should not contain key-specific elements
-    assert "key-gradient" not in svg_str
+    assert "key-gradient-" not in svg_str
     # May contain some basic plot rectangles, but not many
     rect_count = svg_str.count("rect")
     assert rect_count <= 2  # Allow for basic plot elements
