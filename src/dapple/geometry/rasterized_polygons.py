@@ -7,7 +7,7 @@ from ..config import ConfigKey
 from ..coordinates import AbsLengths, CtxLenType, ResolveContext, mm
 from ..elements import Element
 from ..moderngl_utils import calculate_dpi_size, render_triangles_to_texture
-from ..scales import color_params, length_params
+from ..scales import color_params, length_params, UnscaledValues
 from .image import ImageElement
 
 try:
@@ -61,7 +61,24 @@ class RasterizedPolygonsElement(Element):
         poly_to_input_idx: List[
             int
         ] = []  # Maps each polygon to its input geometry index
-        self._flatten_polygons_with_tracking(polygons, poly_list, poly_to_input_idx)
+        num_input_geoms = self._flatten_polygons_with_tracking(
+            polygons, poly_list, poly_to_input_idx
+        )
+
+        # If color is provided as an iterable of the same length as the input geometries,
+        # rewrite it to match the flattened polygons.
+        if (
+            not isinstance(color, (str, bytes, ConfigKey))
+            and isinstance(color, Iterable)
+            and len(color) == num_input_geoms
+        ):
+            if isinstance(color, Colors):
+                color = Colors(color.values[poly_to_input_idx, :])
+            elif isinstance(color, UnscaledValues):
+                new_values = [list(color.values)[i] for i in poly_to_input_idx]
+                color = UnscaledValues(color.unit, new_values, color.typ)
+            else:
+                color = [list(color)[i] for i in poly_to_input_idx]
 
         triangles: List[np.ndarray] = []
         tris_per_poly: List[int] = []
@@ -99,6 +116,7 @@ class RasterizedPolygonsElement(Element):
                 "triangle_count": 0,
                 "tris_per_poly": tris_per_poly,
                 "poly_to_input_idx": poly_to_input_idx,
+                "num_input_geoms": num_input_geoms,
                 "color": color_params("color", color),
                 "dpi": dpi,
             }
@@ -116,6 +134,7 @@ class RasterizedPolygonsElement(Element):
             "triangle_count": triangle_count,
             "tris_per_poly": tris_per_poly,
             "poly_to_input_idx": poly_to_input_idx,
+            "num_input_geoms": num_input_geoms,
             "color": color_params("color", color),
             "dpi": dpi,
         }
@@ -135,6 +154,7 @@ class RasterizedPolygonsElement(Element):
         dpi = resolved.attrib["dpi"]
         tris_per_poly = resolved.attrib.get("tris_per_poly", None)
         poly_to_input_idx = resolved.attrib.get("poly_to_input_idx", None)
+        num_input_geoms = resolved.attrib.get("num_input_geoms", 0)
 
         assert isinstance(x, AbsLengths)
         assert isinstance(y, AbsLengths)
@@ -202,29 +222,27 @@ class RasterizedPolygonsElement(Element):
                 raise ValueError(
                     "Expanded per-polygon colors did not match triangle count."
                 )
-        elif isinstance(poly_to_input_idx, list) and len(poly_to_input_idx) > 0:
-            # Try to match colors to input geometries (handles MultiPolygons)
-            num_input_geoms = max(poly_to_input_idx) + 1
-            if len(color) == num_input_geoms:
-                # Map input colors through polygons to triangles
-                per_triangle_colors = np.zeros((triangle_count, 4), dtype=np.float32)
-                tri_idx = 0
-                for poly_idx, ntri in enumerate(tris_per_poly):
-                    if ntri == 0:
-                        continue
-                    input_idx = poly_to_input_idx[poly_idx]
-                    per_triangle_colors[tri_idx : tri_idx + ntri, :] = color.values[
-                        input_idx, :
-                    ].astype(np.float32)
-                    tri_idx += ntri
-            else:
-                raise ValueError(
-                    f"Color length mismatch: expected scalar, {triangle_count} (per triangle), "
-                    f"{len(tris_per_poly)} (per polygon), or {num_input_geoms} (per input geometry)."
-                )
+        elif (
+            isinstance(poly_to_input_idx, list)
+            and len(poly_to_input_idx) > 0
+            and len(color) == num_input_geoms
+        ):
+            # Map input colors through polygons to triangles
+            per_triangle_colors = np.zeros((triangle_count, 4), dtype=np.float32)
+            tri_idx = 0
+            for poly_idx, ntri in enumerate(tris_per_poly):
+                if ntri == 0:
+                    continue
+                input_idx = poly_to_input_idx[poly_idx]
+                per_triangle_colors[tri_idx : tri_idx + ntri, :] = color.values[
+                    input_idx, :
+                ].astype(np.float32)
+                tri_idx += ntri
         else:
             raise ValueError(
-                f"Color length mismatch: expected scalar, {triangle_count} (per triangle), or {len(tris_per_poly) if isinstance(tris_per_poly, list) else 'N'} (per polygon)."
+                f"Color length mismatch: expected scalar, {triangle_count} (per triangle), "
+                f"{len(tris_per_poly) if isinstance(tris_per_poly, list) else 'N'} (per polygon), or {num_input_geoms} (per input geometry). "
+                f"Got {len(color)} colors."
             )
 
         # Render triangles to texture
@@ -303,7 +321,7 @@ class RasterizedPolygonsElement(Element):
             return input_idx
 
         if geom is None:
-            return input_idx
+            return input_idx + 1
 
         if isinstance(geom, _geom.Polygon):
             out.append(geom)
@@ -325,35 +343,6 @@ class RasterizedPolygonsElement(Element):
             raise TypeError(
                 "polygons must be a shapely Polygon, MultiPolygon, or an iterable of those."
             )
-
-
-def _colors_for_triangles(
-    colors: Colors, tris_per_poly: List[int], total_tris: int
-) -> np.ndarray:
-    """
-    Expand provided Colors into a per-triangle RGBA array.
-
-    - If colors is scalar, repeat to all triangles.
-    - If colors has length equal to number of polygons, assign triangles from each polygon that color.
-    """
-    if colors.isscalar():
-        rgba = colors.values.astype(np.float32)
-        return np.repeat(rgba, total_tris, axis=0)
-
-    n_polys = len(tris_per_poly)
-    if len(colors) == n_polys:
-        out = np.zeros((total_tris, 4), dtype=np.float32)
-        k = 0
-        for i, ntri in enumerate(tris_per_poly):
-            if ntri == 0:
-                continue
-            out[k : k + ntri, :] = colors.values[i, :].astype(np.float32)
-            k += ntri
-        return out
-
-    raise ValueError(
-        f"Color length mismatch: expected scalar or {n_polys} colors (one per polygon), got {len(colors)}."
-    )
 
 
 def _triangulate_polygon_earcut(polygon, coords: np.ndarray) -> np.ndarray:
