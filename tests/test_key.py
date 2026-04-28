@@ -187,6 +187,26 @@ def test_key_abs_bounds_continuous():
         assert isinstance(key_geom._color_scale, ScaleContinuousColor)
 
 
+def test_key_exclude():
+    """Test that exclude suppresses specified labels from the key."""
+    n = 15
+    categories = np.random.choice(["True", "False"], n)
+
+    pl = plot(
+        points(np.random.rand(n), np.random.rand(n), color=categories),
+        key(exclude=["False"]),
+    )
+
+    from io import StringIO
+
+    buf = StringIO()
+    pl.svg(inch(4), inch(3)).serialize(buf)
+    svg_str = buf.getvalue()
+
+    assert "True" in svg_str
+    assert "False" not in svg_str
+
+
 def test_key_abs_bounds_no_scale():
     """Test that abs_bounds returns zero when no color scale is present."""
     key_geom = key()

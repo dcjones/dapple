@@ -43,6 +43,7 @@ class Key(Element):
         stroke_width=ConfigKey("tick_stroke_width"),
         tick_length=ConfigKey("tick_length"),
         position=ConfigKey(key="key_position"),
+        exclude: list | None = None,
     ):
         attrib: dict[str, object] = {
             "dapple:position": position,
@@ -64,6 +65,7 @@ class Key(Element):
         self._color_scale = None
         self._labels = None
         self._colors = None
+        self._exclude: set = set(exclude) if exclude is not None else set()
 
     @override
     def resolve(self, ctx: ResolveContext) -> Element:
@@ -78,6 +80,24 @@ class Key(Element):
         else:
             # Unknown scale type, return empty group
             return Element("g", {})
+
+    def _filtered_labels(self):
+        """Return labels with excluded entries removed."""
+        assert self._labels is not None
+        if not self._exclude:
+            return list(self._labels)
+        return [lbl for lbl in self._labels if str(lbl) not in self._exclude and lbl not in self._exclude]
+
+    def _filtered_labels_colors(self):
+        """Return labels and colors with excluded entries removed."""
+        assert self._labels is not None
+        assert self._colors is not None
+        if not self._exclude:
+            return list(self._labels), self._colors
+        mask = np.array([str(lbl) not in self._exclude and lbl not in self._exclude for lbl in self._labels])
+        labels = [lbl for lbl, keep in zip(self._labels, mask) if keep]
+        colors = Colors(self._colors.values[mask, :])
+        return labels, colors
 
     def _resolve_discrete(self, ctx: ResolveContext) -> Element:
         """Resolve discrete color scale into squares with labels."""
@@ -113,8 +133,9 @@ class Key(Element):
 
         # Reverse so the first stack segment (bottom of chart) appears at the
         # bottom of the key, matching the visual stacking order.
-        labels = self._labels[::-1]
-        colors = Colors(self._colors.values[::-1, :])
+        filtered_labels, filtered_colors = self._filtered_labels_colors()
+        labels = filtered_labels[::-1]
+        colors = Colors(filtered_colors.values[::-1, :])
 
         # Create arrays for vectorized rendering
         y_positions_vals = []
@@ -401,7 +422,8 @@ class Key(Element):
             square_size_val = square_size.scalar_value()
             spacing_val = spacing.scalar_value()
 
-            for i, label in enumerate(self._labels):
+            labels = self._filtered_labels()
+            for i, label in enumerate(labels):
                 text_width, text_height = font.get_extents(str(label))
                 text_width_val = text_width.scalar_value()
                 if text_width_val > max_text_width_val:
@@ -409,7 +431,7 @@ class Key(Element):
 
                 # Add square size plus spacing for each item
                 total_height_val += square_size_val
-                if i < len(self._labels) - 1:  # No spacing after last item
+                if i < len(labels) - 1:  # No spacing after last item
                     total_height_val += spacing_val
 
             # Calculate total width: square + spacing + text
