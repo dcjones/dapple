@@ -1,6 +1,7 @@
 from .bars import horizontal_bars, vertical_bars
 from .grids import xgrids, ygrids
 from .heatmap import heatmap
+from .hexbin import hexbin
 from .histogram import histogram
 from .histogram2d import histogram2d
 from .image import image
