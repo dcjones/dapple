@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, Optional, override
 
 import numpy as np
 
-from ..coordinates import CtxLenType, cxv, cyv
+from ..colors import Colors
+from ..coordinates import CtxLenType, Lengths, cxv, cyv
 from ..elements import Element
-from ..scales import color_params, length_params
+from ..scales import ScaleSet, UnscaledExpr, UnscaledValues, color_params, length_params
 from .bars import Bar
 
 
@@ -39,6 +41,58 @@ def _build_stacked_pivot(
     return pivot
 
 
+@dataclass
+class _StackedPositionExpr(UnscaledExpr):
+    """
+    Lazily computes the starting offset of one layer of a stacked bar.
+
+    The stacking order follows the order of ``color_unit``'s discrete scale,
+    which is only known once that scale has been fit and finalized. This
+    defers the offset computation to ``accept_scale``, which runs after
+    finalization.
+    """
+
+    unit: str
+    typ: CtxLenType
+    color_unit: str
+    color_val: Any
+    pivot: dict[Any, dict[Any, float]]
+    unique_pos: list[Any]
+    unique_colors: list[Any]
+
+    def __len__(self) -> int:
+        return len(self.unique_pos)
+
+    @override
+    def accept_fit(self, scaleset: ScaleSet) -> None:
+        # Fit using each stack's full range, independent of layer order, so
+        # the scale's bounds cover the top of the stack regardless of which
+        # color ends up on top.
+        totals = [sum(self.pivot[p].values()) for p in self.unique_pos]
+        scaleset[self.unit].fit_values(
+            UnscaledValues(self.unit, [0.0, *totals], self.typ)
+        )
+
+    @override
+    def accept_scale(self, scaleset: ScaleSet) -> Lengths | Colors:
+        color_map = getattr(scaleset.get(self.color_unit), "map", None)
+        if color_map is not None:
+            ordered_colors = sorted(self.unique_colors, key=lambda c: color_map[c])
+        else:
+            ordered_colors = sorted(self.unique_colors)
+
+        below = ordered_colors[: ordered_colors.index(self.color_val)]
+        starts = [sum(self.pivot[p][c] for c in below) for p in self.unique_pos]
+
+        return scaleset[self.unit].scale_values(
+            UnscaledValues(self.unit, starts, self.typ)
+        )
+
+    @override
+    def accept_visitor(self, visitor: Callable[[UnscaledValues], Any]) -> None:
+        _ = visitor
+
+
 def stacked_vertical_bars(
     x: Any,
     y: Any,
@@ -51,8 +105,10 @@ def stacked_vertical_bars(
     Create stacked vertical bars grouped by x position and segmented by color.
 
     Each unique value in ``color`` becomes one horizontal layer of the stack.
-    Layers are ordered by first appearance in the data. Multiple observations
-    with the same ``(x, color)`` pair are summed before stacking.
+    Layers are stacked bottom-to-top in the order assigned by the plot's
+    discrete color scale (which defaults to sorting values, but can be
+    customized via ``order_by`` or an explicit ``values`` mapping). Multiple
+    observations with the same ``(x, color)`` pair are summed before stacking.
 
     Args:
         x: Grouping position per observation (the x-axis category for each stack).
@@ -107,10 +163,8 @@ def stacked_vertical_bars(
 
     bar_width = cxv(width)
     container = Element("g")
-    cum_per_x: dict[Any, float] = {xi: 0.0 for xi in unique_x}
 
     for color_val in unique_colors:
-        y_starts = [cum_per_x[xi] for xi in unique_x]
         y_vals = [pivot[xi][color_val] for xi in unique_x]
 
         # Compute the left edge of bars: center x minus half-width
@@ -118,15 +172,14 @@ def stacked_vertical_bars(
 
         bar = Bar(
             x=x_pos,
-            y=length_params("y", y_starts, CtxLenType.Pos),
+            y=_StackedPositionExpr(
+                "y", CtxLenType.Pos, "color", color_val, pivot, unique_x, unique_colors
+            ),
             width=bar_width,
             height=length_params("y", y_vals, CtxLenType.Vec),
             fill=color_params("color", color_val),
         )
         container.append(bar)
-
-        for xi, yv in zip(unique_x, y_vals):
-            cum_per_x[xi] += yv
 
     return container
 
@@ -143,8 +196,10 @@ def stacked_horizontal_bars(
     Create stacked horizontal bars grouped by y position and segmented by color.
 
     Each unique value in ``color`` becomes one vertical layer of the stack.
-    Layers are ordered by first appearance in the data. Multiple observations
-    with the same ``(y, color)`` pair are summed before stacking.
+    Layers are stacked left-to-right in the order assigned by the plot's
+    discrete color scale (which defaults to sorting values, but can be
+    customized via ``order_by`` or an explicit ``values`` mapping). Multiple
+    observations with the same ``(y, color)`` pair are summed before stacking.
 
     Args:
         y: Grouping position per observation (the y-axis category for each stack).
@@ -199,25 +254,22 @@ def stacked_horizontal_bars(
 
     bar_height = cyv(width)
     container = Element("g")
-    cum_per_y: dict[Any, float] = {yi: 0.0 for yi in unique_y}
 
     for color_val in unique_colors:
-        x_starts = [cum_per_y[yi] for yi in unique_y]
         x_vals = [pivot[yi][color_val] for yi in unique_y]
 
         # Compute the bottom edge of bars: center y minus half-height
         y_pos = length_params("y", unique_y, CtxLenType.Pos) - 0.5 * bar_height
 
         bar = Bar(
-            x=length_params("x", x_starts, CtxLenType.Pos),
+            x=_StackedPositionExpr(
+                "x", CtxLenType.Pos, "color", color_val, pivot, unique_y, unique_colors
+            ),
             y=y_pos,
             width=length_params("x", x_vals, CtxLenType.Vec),
             height=bar_height,
             fill=color_params("color", color_val),
         )
         container.append(bar)
-
-        for yi, xv in zip(unique_y, x_vals):
-            cum_per_y[yi] += xv
 
     return container
