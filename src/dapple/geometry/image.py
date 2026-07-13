@@ -5,7 +5,7 @@ from typing import override
 import numpy as np
 from PIL import Image
 
-from ..coordinates import AbsLengths, AbsTransform, CtxLenType, ResolveContext
+from ..coordinates import AbsLengths, AbsTransform, CtxLenType, ResolveContext, mm
 from ..elements import Element
 from ..scales import length_params
 
@@ -119,38 +119,43 @@ class ImageElement(Element):
         assert isinstance(x1, AbsLengths)
         assert isinstance(y1, AbsLengths)
 
-        # Recover the width/height from the two absolute corners. When an axis
-        # is flipped this difference is negative; the flip handling below
-        # rewrites the position and dimensions so SVG never sees a negative
-        # width/height. (The dapple:* corner attributes are stripped after
-        # resolution.)
-        width = x1 - x
-        height = y1 - y
-        assert isinstance(width, AbsLengths)
-        assert isinstance(height, AbsLengths)
-        root.attrib["width"] = width
-        root.attrib["height"] = height
+        # The two corners resolve to absolute (screen) positions. Whether the
+        # far corner lands above/below or left/right of (x0, y0) depends on the
+        # sign of the width/height and on whether the axis is flipped. SVG image
+        # elements cannot have negative width/height, so we always emit positive
+        # dimensions and bake any flipping into a transform: the raster is drawn
+        # in a canonical [0, w] x [0, h] box and the transform maps its origin
+        # (array pixel (0, 0)) onto the (x0, y0) corner. (The dapple:* corner
+        # attributes are stripped after resolution.)
+        x0 = x.scalar_value()
+        y0 = y.scalar_value()
+        x1 = x1.scalar_value()
+        y1 = y1.scalar_value()
 
-        xflipped = "x" in ctx.coords and ctx.coords["x"].scale < 0
-        yflipped = "y" in ctx.coords and ctx.coords["y"].scale < 0
+        width = abs(x1 - x0)
+        height = abs(y1 - y0)
+
+        xflipped = x1 < x0
+        yflipped = y1 < y0
 
         if xflipped or yflipped:
-            x = x.scalar_value()
-            y = y.scalar_value()
-            width = width.scalar_value()
-            height = height.scalar_value()
-
             t = AbsTransform(
                 -1.0 if xflipped else 1.0,
                 0.0,
                 0.0,
                 -1.0 if yflipped else 1.0,
-                x + width if xflipped else x,
-                y + height if yflipped else y,
+                x0,
+                y0,
             )
 
             root.attrib["transform"] = t.serialize()
             root.attrib["x"] = "0"
             root.attrib["y"] = "0"
+        else:
+            root.attrib["x"] = mm(x0)
+            root.attrib["y"] = mm(y0)
+
+        root.attrib["width"] = mm(width)
+        root.attrib["height"] = mm(height)
 
         return root

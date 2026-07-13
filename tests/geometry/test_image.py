@@ -1,3 +1,4 @@
+import re
 import pytest
 import numpy as np
 import base64
@@ -175,6 +176,74 @@ class TestImageGeometry:
             scale = scales[unit]
             assert scale.min == 1000
             assert scale.max == 1100
+
+    def test_flipped_axis_emits_positive_dimensions(self):
+        """A flipped axis must not produce a negative SVG width/height.
+
+        Regression test: the image previously baked the axis flip into a
+        transform but left the height negative, which is invalid SVG. Renderers
+        that clamp the negative dimension drew the image shifted by a full
+        height. The extent must be positive and the image must map onto its
+        true data rectangle.
+        """
+        from dapple import plot, xcontinuous, ycontinuous
+        from dapple.geometry.points import points
+
+        data = np.zeros((20, 20, 3), dtype=np.uint8)
+        data[:, :, 2] = 255
+
+        # Anchor a domain of [1000, 1800] on both axes so the image occupies a
+        # sub-rectangle rather than the whole plot.
+        pl = plot(
+            points(x=[1000, 1800], y=[1000, 1800]),
+            image(x=1400, y=1200, width=200, height=200, data=data),
+            xcontinuous(),
+            ycontinuous(),
+        )
+        out = StringIO()
+        pl.svg(300, 300, out)  # y is flipped by default
+        svg = out.getvalue()
+
+        img_line = next(l for l in svg.splitlines() if "<image" in l)
+
+        width = float(re.search(r'width="(-?[\d.]+)"', img_line).group(1))
+        height = float(re.search(r'height="(-?[\d.]+)"', img_line).group(1))
+        assert width > 0
+        assert height > 0
+
+        # Map the image's local box through its transform and confirm the
+        # screen extent matches the [1400, 1600] x [1200, 1400] data rectangle.
+        m = re.search(r"matrix\(([^)]*)\)", img_line)
+        assert m is not None
+        a, _b, _c, d, e, f = [float(v) for v in m.group(1).split(",")]
+        xs = [e + a * lx for lx in (0.0, width)]
+        ys = [f + d * ly for ly in (0.0, height)]
+        screen_x = (min(xs), max(xs))
+        screen_y = (min(ys), max(ys))
+
+        # Reference points: circles at data (1000, 1000) and (1800, 1800).
+        pts = []
+        for l in svg.splitlines():
+            cx = re.search(r'cx="([\d.]+)"', l)
+            cy = re.search(r'cy="([\d.]+)"', l)
+            if cx and cy:
+                pts.append((float(cx.group(1)), float(cy.group(1))))
+        (cx_lo, cy_lo), (cx_hi, cy_hi) = sorted(pts)
+
+        # Data -> screen linear maps derived from the two anchor points.
+        def to_screen_x(v):
+            return cx_lo + (cx_hi - cx_lo) * (v - 1000) / (1800 - 1000)
+
+        def to_screen_y(v):
+            return cy_lo + (cy_hi - cy_lo) * (v - 1000) / (1800 - 1000)
+
+        exp_x = tuple(sorted((to_screen_x(1400), to_screen_x(1600))))
+        exp_y = tuple(sorted((to_screen_y(1200), to_screen_y(1400))))
+
+        assert screen_x[0] == pytest.approx(exp_x[0], abs=0.5)
+        assert screen_x[1] == pytest.approx(exp_x[1], abs=0.5)
+        assert screen_y[0] == pytest.approx(exp_y[0], abs=0.5)
+        assert screen_y[1] == pytest.approx(exp_y[1], abs=0.5)
 
     def test_invalid_array_dimensions(self):
         """Test error handling for invalid array dimensions."""
