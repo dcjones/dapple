@@ -36,11 +36,17 @@ class ImageElement(Element):
         # Convert numpy array to PNG data URL
         data_url = self._numpy_to_png_data_url(data)
 
+        # Store the far corner (x + width, y + height) as an absolute position
+        # rather than storing width/height as a relative vector. If the extent
+        # were stored as a vector, scale fitting would treat the width/height
+        # magnitudes as coordinates, dragging the axes toward the origin when
+        # the image is placed far from (0, 0). The width/height are recovered
+        # from the two corners in `resolve`.
         attrib = {
             "x": length_params("x", x, CtxLenType.Pos),
             "y": length_params("y", y, CtxLenType.Pos),
-            "width": length_params("x", width, CtxLenType.Vec),
-            "height": length_params("y", height, CtxLenType.Vec),
+            "dapple:x1": length_params("x", x + width, CtxLenType.Pos),
+            "dapple:y1": length_params("y", y + height, CtxLenType.Pos),
             "href": data_url,
         }
 
@@ -103,20 +109,32 @@ class ImageElement(Element):
     def resolve(self, ctx: ResolveContext) -> Element:
         root = super().resolve(ctx)
 
+        x = root.attrib["x"]
+        y = root.attrib["y"]
+        x1 = root.attrib["dapple:x1"]
+        y1 = root.attrib["dapple:y1"]
+
+        assert isinstance(x, AbsLengths)
+        assert isinstance(y, AbsLengths)
+        assert isinstance(x1, AbsLengths)
+        assert isinstance(y1, AbsLengths)
+
+        # Recover the width/height from the two absolute corners. When an axis
+        # is flipped this difference is negative; the flip handling below
+        # rewrites the position and dimensions so SVG never sees a negative
+        # width/height. (The dapple:* corner attributes are stripped after
+        # resolution.)
+        width = x1 - x
+        height = y1 - y
+        assert isinstance(width, AbsLengths)
+        assert isinstance(height, AbsLengths)
+        root.attrib["width"] = width
+        root.attrib["height"] = height
+
         xflipped = "x" in ctx.coords and ctx.coords["x"].scale < 0
         yflipped = "y" in ctx.coords and ctx.coords["y"].scale < 0
 
         if xflipped or yflipped:
-            x = root.attrib["x"]
-            y = root.attrib["y"]
-            width = root.attrib["width"]
-            height = root.attrib["height"]
-
-            assert isinstance(x, AbsLengths)
-            assert isinstance(y, AbsLengths)
-            assert isinstance(width, AbsLengths)
-            assert isinstance(height, AbsLengths)
-
             x = x.scalar_value()
             y = y.scalar_value()
             width = width.scalar_value()

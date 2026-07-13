@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 import base64
-from io import BytesIO
+from io import BytesIO, StringIO
 from PIL import Image
 
 from dapple.geometry.image import image, ImageElement
@@ -88,21 +88,29 @@ class TestImageGeometry:
         assert pil_img.size == (2, 2)
 
     def test_image_parameters_stored_correctly(self):
-        """Test that x, y, width, height parameters are stored with correct types."""
+        """Test that the image corners are stored as absolute positions.
+
+        The extent is stored as the far corner (x + width, y + height) rather
+        than as a relative width/height vector, so that continuous scales fit
+        the image's true extent. The width/height are recovered during resolve.
+        """
         data = np.zeros((5, 5), dtype=np.uint8)
         img = image(mm(10), mm(20), mm(30), mm(40), data)
 
-        # Check parameter types and units
         x_param = img.attrib["x"]
         y_param = img.attrib["y"]
-        width_param = img.attrib["width"]
-        height_param = img.attrib["height"]
+        x1_param = img.attrib["dapple:x1"]
+        y1_param = img.attrib["dapple:y1"]
+
+        # width/height are not stored up front; they are derived in resolve.
+        assert "width" not in img.attrib
+        assert "height" not in img.attrib
 
         # These should be length parameters, not raw values
         assert hasattr(x_param, 'resolve') or isinstance(x_param, type(mm(10)))
         assert hasattr(y_param, 'resolve') or isinstance(y_param, type(mm(20)))
-        assert hasattr(width_param, 'resolve') or isinstance(width_param, type(mm(30)))
-        assert hasattr(height_param, 'resolve') or isinstance(height_param, type(mm(40)))
+        assert hasattr(x1_param, 'resolve') or isinstance(x1_param, type(mm(40)))
+        assert hasattr(y1_param, 'resolve') or isinstance(y1_param, type(mm(60)))
 
     def test_normalization_of_float_data(self):
         """Test that float arrays get normalized to 0-255 range."""
@@ -142,6 +150,31 @@ class TestImageGeometry:
         assert resolved.tag == "image"
         assert "href" in resolved.attrib
         assert resolved.attrib["href"].startswith("data:image/png;base64,")
+
+    def test_far_from_origin_does_not_include_origin(self):
+        """Continuous scales should fit the image extent, not the origin.
+
+        Regression test: previously the width/height were stored as a relative
+        vector and fed into scale fitting as if they were coordinates, which
+        dragged the axes back toward (0, 0) for an image placed far away.
+        """
+        from dapple import plot, xcontinuous, ycontinuous
+
+        data = np.zeros((10, 10, 3), dtype=np.uint8)
+        data[:, :, 0] = 255
+
+        pl = plot(
+            image(x=1000, y=1000, width=100, height=100, data=data),
+            xcontinuous(),
+            ycontinuous(),
+        )
+        pl.svg(400, 400, StringIO())
+
+        scales = pl.attrib["dapple:scaleset"]
+        for unit in ("x", "y"):
+            scale = scales[unit]
+            assert scale.min == 1000
+            assert scale.max == 1100
 
     def test_invalid_array_dimensions(self):
         """Test error handling for invalid array dimensions."""
