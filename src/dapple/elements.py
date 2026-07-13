@@ -1,3 +1,4 @@
+import base64
 import pathlib
 import sys
 from collections.abc import Iterable
@@ -43,6 +44,27 @@ from .occupancy import Occupancy
 from .scales import ScaleSet
 
 AttrType = TypeVar("AttrType")
+
+
+class PNG(bytes):
+    """
+    Raw PNG image bytes that also render inline in notebooks.
+
+    Behaves exactly like ``bytes`` (so it can be written to a file or otherwise
+    consumed programmatically), but additionally implements the Jupyter
+    (``_repr_png_``) and marimo (``_mime_``) display protocols so that a
+    returned PNG shows up as an image rather than a bytes repr. This lets an
+    explicit ``plot(...).png(w, h)`` call be rasterized once by Inkscape and
+    displayed inline, which is useful for large plots where inline SVG is slow
+    or unreliable.
+    """
+
+    def _repr_png_(self) -> bytes:
+        return bytes(self)
+
+    def _mime_(self) -> tuple[str, str]:
+        data_url = "data:image/png;base64," + base64.b64encode(self).decode("ascii")
+        return "image/png", data_url
 
 
 class Element(Resolvable):
@@ -451,7 +473,7 @@ class Element(Resolvable):
                         )
 
                 if output is None:
-                    return png_bytes
+                    return PNG(png_bytes)
 
                 if is_stream_output:
                     output.write(png_bytes)
@@ -521,6 +543,21 @@ class Element(Resolvable):
         else:
             config = self.get_as("dapple:config", Config, lambda: default_config())
             return str(self.svg(config.plot_width, config.plot_height))
+
+    def _mime_(self) -> tuple[str, str]:
+        """
+        marimo display protocol. Unlike Jupyter, marimo does not dispatch on
+        IPython-style ``_repr_*_`` methods for arbitrary objects, so a plot
+        rendered via :meth:`_repr_svg_` alone will not appear inline. This
+        mirrors :meth:`_repr_svg_`, displaying the plot as SVG by default. For
+        very large plots where inline SVG is slow or unreliable, call
+        :meth:`png` explicitly to have Inkscape rasterize it once.
+        """
+        if self.tag == "svg":
+            return "image/svg+xml", str(self)
+
+        config = self.get_as("dapple:config", Config, lambda: default_config())
+        return "image/svg+xml", str(self.svg(config.plot_width, config.plot_height))
 
 
 class RawText(Element):
