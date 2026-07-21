@@ -7,6 +7,7 @@ from .plot import plot
 from .scales import (
     colorcontinuous,
     colordiscrete,
+    shapediscrete,
     sizecontinuous,
     xcontinuous,
     xdiscrete,

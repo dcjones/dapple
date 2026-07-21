@@ -42,6 +42,7 @@ from .coordinates import (
 from .export import ExportError, svg_to_pdf, svg_to_png
 from .occupancy import Occupancy
 from .scales import ScaleSet
+from .shapes import ShapePaths
 
 AttrType = TypeVar("AttrType")
 
@@ -609,7 +610,7 @@ class VectorizedElement(Element):
     def serialize(self, output: TextIO, indent: int = 0):
         nels = 1
         for _key, value in self.attrib.items():
-            if isinstance(value, (AbsLengths, Colors)):
+            if isinstance(value, (AbsLengths, Colors, ShapePaths)):
                 if len(value) > 1:
                     if nels != len(value):
                         if nels > 1:

@@ -45,6 +45,7 @@ from .scales import (
     ScaleContinuousLength,
     ScaleDiscreteColor,
     ScaleDiscreteLength,
+    ScaleDiscreteShape,
     ScaleSet,
     UnscaledExpr,
     UnscaledValues,
@@ -137,7 +138,7 @@ class Plot(Element):
                 else:
                     scaleset[unit] = ScaleDiscreteColor(unit)
             elif unit == "shape":
-                raise Exception("shape scale not yet implemented")
+                scaleset[unit] = ScaleDiscreteShape(unit)
             else:
                 if numeric:
                     scaleset[unit] = ScaleContinuousLength(unit)

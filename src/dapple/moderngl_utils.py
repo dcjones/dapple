@@ -188,12 +188,15 @@ def render_points_to_texture(
     # Read back texture data
     texture_data = texture.read()
 
-    # Convert to numpy array and reshape
+    # Convert to numpy array and reshape.
+    #
+    # OpenGL reads back bottom-row-first, so data[0] is the row containing the
+    # smallest y coordinate. The image geometry consuming this texture maps the
+    # first array row onto the (x_range[0], y_range[0]) corner and steps
+    # downward from there, so this bottom-origin order is exactly what it
+    # expects. Do not flip vertically here: doing so mirrors the output.
     data = np.frombuffer(texture_data, dtype=np.uint8)
     data = data.reshape((height, width, 4))
-
-    # Flip vertically (OpenGL uses bottom-left origin)
-    data = np.flip(data, axis=0)
 
     # Cleanup
     vao.release()
@@ -303,10 +306,10 @@ def render_triangles_to_texture(
 
     vao.render(mode=moderngl.TRIANGLES)
 
-    # Read back texture data
+    # Read back texture data. Bottom-origin order is intentional; see
+    # render_points_to_texture for why the image geometry needs it unflipped.
     texture_data = texture.read()
     data = np.frombuffer(texture_data, dtype=np.uint8).reshape((height, width, 4))
-    data = np.flip(data, axis=0)
 
     # Cleanup
     vao.release()
@@ -361,7 +364,6 @@ def render_lines_to_texture(
         framebuffer.use()
         framebuffer.clear(*background_color)
         data = np.frombuffer(texture.read(), dtype=np.uint8).reshape((height, width, 4))
-        data = np.flip(data, axis=0)
         framebuffer.release()
         texture.release()
         return data
@@ -477,9 +479,9 @@ def render_lines_to_texture(
 
     vao.render(mode=moderngl.TRIANGLES, vertices=6, instances=S)
 
-    # Readback
+    # Readback. Bottom-origin order is intentional; see
+    # render_points_to_texture for why the image geometry needs it unflipped.
     data = np.frombuffer(texture.read(), dtype=np.uint8).reshape((height, width, 4))
-    data = np.flip(data, axis=0)
 
     # Cleanup
     vao.release()
@@ -542,7 +544,6 @@ def render_rectangles_to_texture(
         framebuffer.use()
         framebuffer.clear(*background_color)
         data = np.frombuffer(texture.read(), dtype=np.uint8).reshape((height, width, 4))
-        data = np.flip(data, axis=0)
         framebuffer.release()
         texture.release()
         return data
@@ -635,10 +636,10 @@ def render_rectangles_to_texture(
 
     vao.render(mode=moderngl.TRIANGLES)
 
-    # Read back texture data
+    # Read back texture data. Bottom-origin order is intentional; see
+    # render_points_to_texture for why the image geometry needs it unflipped.
     texture_data = texture.read()
     data = np.frombuffer(texture_data, dtype=np.uint8).reshape((height, width, 4))
-    data = np.flip(data, axis=0)
 
     # Cleanup
     vao.release()

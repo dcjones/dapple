@@ -1,5 +1,10 @@
+import base64
+import io
+import re
+
 import pytest
 import numpy as np
+from PIL import Image
 from dapple.geometry.rasterized_points import rasterized_points, RasterizedPointsElement
 from dapple.colors import color
 from dapple.config import ConfigKey
@@ -279,6 +284,76 @@ class TestRasterizedPointsElement:
         except (ValueError, IndexError):
             # It's acceptable to raise an error for empty arrays
             pass
+
+
+class TestRasterizedPointsOrientation:
+    """Rasterized points must have the same y orientation as normal points."""
+
+    def _raster_array_and_placement(self, svg):
+        """Decode the <image> raster and return (array, y0_mm, height_mm)."""
+        line = next(l for l in svg.splitlines() if "<image" in l)
+        href = re.search(r'href="(data:image/png;base64,[^"]+)"', line).group(1)
+        png = base64.b64decode(href.split(",", 1)[1])
+        arr = np.array(Image.open(io.BytesIO(png)).convert("RGBA"))
+
+        m = re.search(r"matrix\(([^)]*)\)", line)
+        height_mm = float(re.search(r'height="([\d.]+)"', line).group(1))
+        if m:
+            _a, _b, _c, d, _e, f = [float(v) for v in m.group(1).split(",")]
+            # local (0,0) is the top of the raster; row r maps to f + d * (r/H)*height
+            return arr, f, d * height_mm
+        y0 = float(re.search(r'\by="([\d.-]+)"', line).group(1))
+        return arr, y0, height_mm
+
+    def test_not_vertically_flipped_relative_to_points(self):
+        """A point with a larger data-y must render higher (smaller screen y).
+
+        Regression test: fixing the image geometry's flip handling once left
+        the rasterized point texture mirrored vertically, so rasterized_points
+        rendered upside down compared to the equivalent points() call.
+
+        Two points are placed on the diagonal, so each blob is identifiable by
+        which half of the image (left/right) it falls in, independent of how the
+        color scale assigns colors:
+
+            A = (x=0,  y=0)   -> left column,  bottom of plot (large screen y)
+            B = (x=10, y=10)  -> right column, top of plot    (small screen y)
+        """
+        from dapple import plot, xcontinuous, ycontinuous
+
+        x = [0.0, 10.0]
+        y = [0.0, 10.0]
+        colors = ["#ff0000", "#0000ff"]
+
+        pl = plot(
+            rasterized_points(x=x, y=y, color=colors, size=mm(2)),
+            xcontinuous(),
+            ycontinuous(),
+        )
+        out = io.StringIO()
+        pl.svg(mm(100), mm(100), out)
+        arr, y0_mm, span_mm = self._raster_array_and_placement(out.getvalue())
+
+        opaque = arr[:, :, 3] > 150
+        rows, cols = np.nonzero(opaque)
+        assert len(rows) > 0
+
+        mid_col = arr.shape[1] / 2
+        left = cols < mid_col  # blob A (data y=0)
+        right = cols >= mid_col  # blob B (data y=10)
+        assert left.any() and right.any()
+
+        # Convert mean raster row of each blob into a screen-y position (mm).
+        def screen_y(row_mean):
+            return y0_mm + span_mm * (row_mean / arr.shape[0])
+
+        y_A = screen_y(rows[left].mean())  # data y=0, should sit lower (larger y)
+        y_B = screen_y(rows[right].mean())  # data y=10, should sit higher (smaller y)
+
+        assert y_B < y_A, (
+            f"rasterized points are vertically flipped: the y=10 point rendered "
+            f"at screen y={y_B:.1f} but the y=0 point at screen y={y_A:.1f}"
+        )
 
 
 if __name__ == "__main__":

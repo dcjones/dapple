@@ -13,6 +13,7 @@ from cmap import Colormap, ColormapLike
 from numpy.typing import NDArray
 
 from .colors import Colors
+from .shapes import NUM_SHAPES, Shapes
 from .config import ChooseTicksParams, ConfigKey
 from .coordinates import (
     AbsLengths,
@@ -218,6 +219,17 @@ def color_params(
         return base
 
     return ColorTransformExpr(base, transform)
+
+
+def shape_params(unit: str, values: Any) -> ConfigKey | Shapes | UnscaledExpr:
+    """
+    Wrap raw shape data so it can be discovered and mapped by a shape scale.
+
+    Mirrors :func:`color_params`, but shapes have no transforms.
+    """
+    if isinstance(values, (ConfigKey, Shapes, UnscaledExpr)):
+        return values
+    return UnscaledValues(unit, values)
 
 
 @dataclass
@@ -625,6 +637,77 @@ class ScaleDiscreteColor(ScaleDiscrete):
 
 def colordiscrete(*args: Any, **kwargs: Any) -> ScaleDiscreteColor:
     return ScaleDiscreteColor("color", *args, **kwargs)
+
+
+class ScaleDiscreteShape(ScaleDiscrete):
+    """
+    Discrete shape scale, mapping any collection of (hashable) values onto marker
+    shapes. There are a fixed number of shapes (:data:`~dapple.shapes.NUM_SHAPES`);
+    if there are more distinct values than shapes, indices wrap around.
+    """
+
+    def __init__(
+        self,
+        unit: str = "shape",
+        values: Mapping[Any, Any] | Sequence[Any] | None = None,
+        fixed: bool = False,
+        labeler: Callable[[Sequence[Any]], list[str]] = default_labeler,
+        order_by: Callable[[Sequence[Any]], Sequence[Any]]
+        | Callable[[Sequence[Any], Sequence[Any | None]], Sequence[Any]]
+        | None = sorted,
+    ):
+        super().__init__(unit, values, fixed, labeler, order_by)
+
+    @override
+    def finalize(self) -> None:
+        if self.order_by is not None:
+            vals_list = list(self._targets.keys())
+            prelim_targets = [self._targets[v][1] for v in vals_list]
+            try:
+                values = self.order_by(vals_list, prelim_targets)  # type: ignore[misc]
+            except TypeError:
+                values = self.order_by(vals_list)
+        else:
+            values = self._targets.keys()
+
+        self.targets = np.zeros(len(self._targets), dtype=np.float64)
+        self.map = dict()
+        labels: list[str] = []
+
+        next_target = max(
+            filter(
+                lambda target: target is not None,
+                map(lambda v: v[1], self._targets.values()),
+            ),
+            default=0,
+        )
+
+        for i, value in enumerate(values):
+            (label, target) = self._targets[value]
+            self.map[value] = i
+            labels.append(label)
+            if target is None:
+                self.targets[i] = next_target
+                next_target += 1
+            else:
+                self.targets[i] = target
+
+        self.labels = np.array(labels, dtype=np.str_)
+
+    @override
+    def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
+        assert values.unit == self.unit
+        indices = np.fromiter((self.map[value] for value in values.values), dtype=int)
+        shape_indices = self.targets[indices].astype(int) % NUM_SHAPES
+        return cast(Any, Shapes(shape_indices))
+
+    @override
+    def ticks(self) -> tuple[NDArray[np.str_], Any]:
+        return self.labels, Shapes(self.targets.astype(int) % NUM_SHAPES)
+
+
+def shapediscrete(*args: Any, **kwargs: Any) -> ScaleDiscreteShape:
+    return ScaleDiscreteShape("shape", *args, **kwargs)
 
 
 class TickStep(NamedTuple):
@@ -1044,6 +1127,7 @@ _default_scales: dict[str, tuple[Callable[..., Scale] | None, Callable[..., Scal
     "x": (xdiscrete, xcontinuous),
     "y": (ydiscrete, ycontinuous),
     "color": (colordiscrete, colorcontinuous),
+    "shape": (shapediscrete, shapediscrete),
     "size": (None, sizecontinuous),
 }
 

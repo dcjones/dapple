@@ -20,7 +20,8 @@ from ..coordinates import (
 )
 from ..elements import Element, Path, VectorizedElement, pad
 from ..layout import Position
-from ..scales import ScaleContinuousColor, ScaleDiscreteColor
+from ..scales import ScaleContinuousColor, ScaleDiscreteColor, ScaleDiscreteShape
+from ..shapes import ShapePaths, shape_path_d
 from ..textextents import Font
 from .bars import Bar
 
@@ -65,12 +66,18 @@ class Key(Element):
         self._color_scale = None
         self._labels = None
         self._colors = None
+        self._shape_scale = None
+        self._shape_labels = None
+        self._shapes = None
         self._exclude: set = set(exclude) if exclude is not None else set()
 
     @override
     def resolve(self, ctx: ResolveContext) -> Element:
         if self._color_scale is None:
-            # No color scale found, return empty group
+            # Fall back to a shape legend if a shape scale is available.
+            if self._shape_scale is not None:
+                return self._resolve_shape(ctx)
+            # No scale found, return empty group
             return Element("g", {})
 
         if isinstance(self._color_scale, ScaleDiscreteColor):
@@ -162,6 +169,70 @@ class Key(Element):
         )
 
         # Draw labels - text content cannot be easily vectorized, so use individual elements
+        for i, label in enumerate(labels):
+            text_element = Element(
+                "text",
+                {
+                    "x": mm(square_size_val + spacing_val),
+                    "y": mm(y_positions_vals[i] + square_size_val * 0.5),
+                    "dominant-baseline": "middle",
+                },
+            )
+            text_element.text = str(label)
+            g.append(text_element)
+
+        return g.resolve(ctx)
+
+    def _resolve_shape(self, ctx: ResolveContext) -> Element:
+        """Resolve discrete shape scale into markers with labels."""
+        assert self._shape_labels is not None
+        assert self._shapes is not None
+
+        font_family = self.attrib["font_family"]
+        font_size = self.attrib["font_size"]
+        font_weight = self.attrib["font_weight"]
+        fill = self.attrib["fill"]
+        square_size = self.attrib["square_size"]
+        spacing = self.attrib["spacing"]
+
+        assert isinstance(font_family, str)
+        assert isinstance(font_size, AbsLengths)
+        assert isinstance(square_size, AbsLengths)
+        assert isinstance(spacing, AbsLengths)
+
+        g = Element(
+            "g",
+            {
+                "font-family": font_family,
+                "font-size": font_size,
+                "font-weight": font_weight,
+                "fill": fill,
+            },
+        )
+
+        square_size_val = square_size.scalar_value()
+        spacing_val = spacing.scalar_value()
+        radius = 0.4 * square_size_val
+
+        labels = list(self._shape_labels)
+        indices = self._shapes.indices
+
+        # Draw the marker for each entry, centered within its square slot.
+        y_positions_vals = [i * (square_size_val + spacing_val) for i in range(len(labels))]
+        ds = [
+            shape_path_d(
+                int(indices[i]),
+                square_size_val * 0.5,
+                y_positions_vals[i] + square_size_val * 0.5,
+                radius,
+            )
+            for i in range(len(labels))
+        ]
+
+        if ds:
+            g.append(VectorizedElement("path", {"d": ShapePaths(ds), "fill": fill}))
+
+        # Draw labels
         for i, label in enumerate(labels):
             text_element = Element(
                 "text",
@@ -392,9 +463,15 @@ class Key(Element):
                 # For continuous scales, we'll get tick info during resolve
                 pass
 
+        if "shape" in scales and isinstance(scales["shape"], ScaleDiscreteShape):
+            self._shape_scale = scales["shape"]
+            self._shape_labels, self._shapes = self._shape_scale.ticks()
+
     @override
     def abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
         if self._color_scale is None:
+            if self._shape_scale is not None:
+                return self._shape_abs_bounds()
             return mm(0), mm(0)
 
         font_family = self.attrib["font_family"]
@@ -469,6 +546,40 @@ class Key(Element):
 
         else:
             return mm(0), mm(0)
+
+
+    def _shape_abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
+        assert self._shape_labels is not None
+
+        font_family = self.attrib["font_family"]
+        font_size = self.attrib["font_size"]
+        square_size = self.attrib["square_size"]
+        spacing = self.attrib["spacing"]
+
+        assert isinstance(font_family, str)
+        assert isinstance(font_size, AbsLengths)
+        assert isinstance(square_size, AbsLengths)
+        assert isinstance(spacing, AbsLengths)
+
+        font = Font(font_family, font_size)
+
+        square_size_val = square_size.scalar_value()
+        spacing_val = spacing.scalar_value()
+
+        max_text_width_val = 0.0
+        total_height_val = 0.0
+
+        labels = list(self._shape_labels)
+        for i, label in enumerate(labels):
+            text_width, _text_height = font.get_extents(str(label))
+            max_text_width_val = max(max_text_width_val, text_width.scalar_value())
+
+            total_height_val += square_size_val
+            if i < len(labels) - 1:
+                total_height_val += spacing_val
+
+        total_width_val = square_size_val + spacing_val + max_text_width_val
+        return (mm(total_width_val), mm(total_height_val))
 
 
 def key(*args, **kwargs):
