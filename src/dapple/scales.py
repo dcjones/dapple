@@ -549,7 +549,7 @@ class ScaleDiscreteColor(ScaleDiscrete):
     def __init__(
         self,
         unit: str,
-        colormap: ColormapLike | ConfigKey = ConfigKey("discrete_cmap"),
+        colormap: Callable | ColormapLike | ConfigKey = ConfigKey("discrete_cmap"),
         values: Mapping[Any, Any] | Sequence[Any] | None = None,
         fixed: bool = False,
         labeler: Callable[[Sequence[Any]], list[str]] = default_labeler,
@@ -557,7 +557,7 @@ class ScaleDiscreteColor(ScaleDiscrete):
         | Callable[[Sequence[Any], Sequence[Any | None]], Sequence[Any]]
         | None = sorted,
     ):
-        if isinstance(colormap, ConfigKey):
+        if isinstance(colormap, ConfigKey) or callable(colormap):
             self.colormap = colormap
         else:
             self.colormap = Colormap(colormap)
