@@ -14,6 +14,7 @@ from ..coordinates import (
     ResolveContext,
     cy,
     mm,
+    translate,
     vh,
     vhv,
     vw,
@@ -73,20 +74,84 @@ class Key(Element):
 
     @override
     def resolve(self, ctx: ResolveContext) -> Element:
-        if self._color_scale is None:
-            # Fall back to a shape legend if a shape scale is available.
-            if self._shape_scale is not None:
-                return self._resolve_shape(ctx)
+        has_shape = self._shape_scale is not None
+        color = self._color_scale
+
+        if color is None and not has_shape:
             # No scale found, return empty group
             return Element("g", {})
 
+        # Shape scale only.
+        if color is None and has_shape:
+            return self._resolve_shape(ctx)
+
+        # Color scale only (preserve the original standalone behavior).
+        if not has_shape:
+            if isinstance(color, ScaleDiscreteColor):
+                return self._resolve_discrete(ctx)
+            elif isinstance(color, ScaleContinuousColor):
+                return self._resolve_continuous(ctx)
+            else:
+                return Element("g", {})
+
+        # Both color and shape scales are present: build a combined key.
+        return self._stack_sections(self._combined_sections()).resolve(ctx)
+
+    def _should_merge(self) -> bool:
+        """
+        Merge the color and shape guides into one section when they encode the
+        same discrete variable, i.e. they share identical (ordered) labels.
+        """
+        if not isinstance(self._color_scale, ScaleDiscreteColor):
+            return False
+        if self._labels is None or self._shape_labels is None:
+            return False
+        return [str(x) for x in self._labels] == [str(x) for x in self._shape_labels]
+
+    def _combined_sections(self) -> list[tuple[Element, float, float]]:
+        """
+        Build the ordered list of legend sections for the combined key, each as
+        an ``(element, width_mm, height_mm)`` tuple in local (top-left) mm coords.
+        """
+        if self._should_merge():
+            # One row per category, drawing each shape glyph in its color.
+            return [self._marker_section(list(self._labels), self._colors, self._shapes)]
+
+        sections: list[tuple[Element, float, float]] = []
+
+        # Shape guide first.
+        assert self._shape_labels is not None
+        sections.append(
+            self._marker_section(list(self._shape_labels), None, self._shapes)
+        )
+
+        # Then the color guide.
         if isinstance(self._color_scale, ScaleDiscreteColor):
-            return self._resolve_discrete(ctx)
+            assert self._labels is not None
+            sections.append(
+                self._marker_section(list(self._labels), self._colors, None)
+            )
         elif isinstance(self._color_scale, ScaleContinuousColor):
-            return self._resolve_continuous(ctx)
-        else:
-            # Unknown scale type, return empty group
-            return Element("g", {})
+            sections.append(self._continuous_section())
+
+        return sections
+
+    def _section_gap(self) -> float:
+        spacing = self.attrib["spacing"]
+        assert isinstance(spacing, AbsLengths)
+        return 2.0 * spacing.scalar_value()
+
+    def _stack_sections(self, sections: list[tuple[Element, float, float]]) -> Element:
+        """Stack legend sections vertically, separated by ``_section_gap``."""
+        gap = self._section_gap()
+        g = Element("g")
+        y = 0.0
+        for element, _w, h in sections:
+            g.append(
+                Element("g", {"transform": translate(mm(0), mm(y))}, element)
+            )
+            y += h + gap
+        return g
 
     def _filtered_labels(self):
         """Return labels with excluded entries removed."""
@@ -186,8 +251,22 @@ class Key(Element):
     def _resolve_shape(self, ctx: ResolveContext) -> Element:
         """Resolve discrete shape scale into markers with labels."""
         assert self._shape_labels is not None
-        assert self._shapes is not None
+        section, _w, _h = self._marker_section(
+            list(self._shape_labels), None, self._shapes
+        )
+        return section.resolve(ctx)
 
+    def _marker_section(
+        self, labels: list, colors, shapes
+    ) -> tuple[Element, float, float]:
+        """
+        Build one discrete legend section as an ``(element, width, height)`` tuple.
+
+        Swatches are drawn as:
+          * colored squares when only ``colors`` is given (plain color legend),
+          * shape glyphs when ``shapes`` is given, filled with ``colors`` if
+            supplied (merged color+shape legend) or the default fill otherwise.
+        """
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
         font_weight = self.attrib["font_weight"]
@@ -200,6 +279,24 @@ class Key(Element):
         assert isinstance(square_size, AbsLengths)
         assert isinstance(spacing, AbsLengths)
 
+        # Filter out excluded labels, keeping colors/shapes aligned.
+        keep = [
+            i
+            for i, lbl in enumerate(labels)
+            if str(lbl) not in self._exclude and lbl not in self._exclude
+        ]
+        labels = [labels[i] for i in keep]
+        if colors is not None:
+            colors = Colors(colors.values[keep, :])
+        shape_indices = shapes.indices[keep] if shapes is not None else None
+
+        square_size_val = square_size.scalar_value()
+        spacing_val = spacing.scalar_value()
+        radius = 0.4 * square_size_val
+
+        n = len(labels)
+        y_positions_vals = [i * (square_size_val + spacing_val) for i in range(n)]
+
         g = Element(
             "g",
             {
@@ -210,30 +307,45 @@ class Key(Element):
             },
         )
 
-        square_size_val = square_size.scalar_value()
-        spacing_val = spacing.scalar_value()
-        radius = 0.4 * square_size_val
+        if n > 0:
+            if shapes is None:
+                assert colors is not None
+                g.append(
+                    VectorizedElement(
+                        "rect",
+                        {
+                            "x": mm(0),
+                            "y": mm(np.array(y_positions_vals)),
+                            "width": square_size,
+                            "height": square_size,
+                            "fill": colors,
+                        },
+                    )
+                )
+            else:
+                assert shape_indices is not None
+                ds = [
+                    shape_path_d(
+                        int(shape_indices[i]),
+                        square_size_val * 0.5,
+                        y_positions_vals[i] + square_size_val * 0.5,
+                        radius,
+                    )
+                    for i in range(n)
+                ]
+                swatch_fill = colors if colors is not None else fill
+                g.append(
+                    VectorizedElement(
+                        "path", {"d": ShapePaths(ds), "fill": swatch_fill}
+                    )
+                )
 
-        labels = list(self._shape_labels)
-        indices = self._shapes.indices
-
-        # Draw the marker for each entry, centered within its square slot.
-        y_positions_vals = [i * (square_size_val + spacing_val) for i in range(len(labels))]
-        ds = [
-            shape_path_d(
-                int(indices[i]),
-                square_size_val * 0.5,
-                y_positions_vals[i] + square_size_val * 0.5,
-                radius,
-            )
-            for i in range(len(labels))
-        ]
-
-        if ds:
-            g.append(VectorizedElement("path", {"d": ShapePaths(ds), "fill": fill}))
-
-        # Draw labels
+        font = Font(font_family, font_size)
+        max_text_width_val = 0.0
         for i, label in enumerate(labels):
+            text_width, _text_height = font.get_extents(str(label))
+            max_text_width_val = max(max_text_width_val, text_width.scalar_value())
+
             text_element = Element(
                 "text",
                 {
@@ -245,7 +357,135 @@ class Key(Element):
             text_element.text = str(label)
             g.append(text_element)
 
-        return g.resolve(ctx)
+        width_val = square_size_val + spacing_val + max_text_width_val
+        height_val = n * square_size_val + max(n - 1, 0) * spacing_val
+        return g, width_val, height_val
+
+    def _continuous_section(self) -> tuple[Element, float, float]:
+        """
+        Build a finite-height continuous color gradient section for stacking with
+        other guides, as an ``(element, width, height)`` tuple.
+        """
+        assert isinstance(self._color_scale, ScaleContinuousColor)
+
+        font_family = self.attrib["font_family"]
+        font_size = self.attrib["font_size"]
+        font_weight = self.attrib["font_weight"]
+        fill = self.attrib["fill"]
+        spacing = self.attrib["spacing"]
+        gradient_width = self.attrib["gradient_width"]
+        stroke_width = self.attrib["stroke-width"]
+        tick_length = self.attrib["tick_length"]
+
+        assert isinstance(font_family, str)
+        assert isinstance(font_size, AbsLengths)
+        assert isinstance(spacing, AbsLengths)
+        assert isinstance(gradient_width, AbsLengths)
+        assert isinstance(stroke_width, AbsLengths)
+        assert isinstance(tick_length, AbsLengths)
+
+        font = Font(font_family, font_size)
+        tick_labels, _tick_positions = self._color_scale.ticks()
+        n = len(tick_labels)
+
+        max_text_width_val = 0.0
+        max_text_height_val = 0.0
+        for label in tick_labels:
+            tw, th = font.get_extents(str(label))
+            max_text_width_val = max(max_text_width_val, tw.scalar_value())
+            max_text_height_val = max(max_text_height_val, th.scalar_value())
+
+        spacing_val = spacing.scalar_value()
+        gradient_width_val = gradient_width.scalar_value()
+        tick_length_val = tick_length.scalar_value()
+
+        # Even tick spacing, tall enough that labels don't collide.
+        gap = max(2.0 * max_text_height_val, spacing_val)
+        gradient_height_val = max((n - 1) * gap, gap)
+        top_pad = 0.5 * max_text_height_val
+
+        g = Element(
+            "g",
+            {
+                "font-family": font_family,
+                "font-size": font_size,
+                "font-weight": font_weight,
+                "fill": fill,
+            },
+        )
+
+        gradient_id = f"key-gradient-{id(self)}"
+        defs = Element("defs")
+        linear_gradient = Element(
+            "linearGradient",
+            {"id": gradient_id, "x1": "0%", "y1": "100%", "x2": "0%", "y2": "0%"},
+        )
+        n_stops = 20
+        for i in range(n_stops):
+            position = i / (n_stops - 1)
+            colormap = self._color_scale.colormap
+            color_hex = Colors(colormap(np.array([position]))).serialize()
+            if isinstance(color_hex, list) and color_hex:
+                color_hex = color_hex[0]
+            linear_gradient.append(
+                Element(
+                    "stop",
+                    {"offset": f"{position * 100}%", "stop-color": color_hex},
+                )
+            )
+        defs.append(linear_gradient)
+        g.append(defs)
+
+        # Gradient rectangle (min at the bottom, max at the top).
+        g.append(
+            Element(
+                "rect",
+                {
+                    "x": mm(0),
+                    "y": mm(top_pad),
+                    "width": gradient_width,
+                    "height": mm(gradient_height_val),
+                    "fill": f"url(#{gradient_id})",
+                },
+            )
+        )
+
+        # Tick y positions: tick 0 (minimum) sits at the bottom.
+        def tick_y(i: int) -> float:
+            frac = i / (n - 1) if n > 1 else 0.5
+            return top_pad + gradient_height_val * (1.0 - frac)
+
+        for i, label in enumerate(tick_labels):
+            y = tick_y(i)
+            g.append(
+                Element(
+                    "line",
+                    {
+                        "x1": gradient_width,
+                        "x2": gradient_width + tick_length,
+                        "y1": mm(y),
+                        "y2": mm(y),
+                        "stroke": fill,
+                        "stroke-width": stroke_width,
+                    },
+                )
+            )
+            text_element = Element(
+                "text",
+                {
+                    "x": gradient_width + tick_length + spacing,
+                    "y": mm(y),
+                    "dominant-baseline": "middle",
+                },
+            )
+            text_element.text = str(label)
+            g.append(text_element)
+
+        width_val = (
+            gradient_width_val + tick_length_val + spacing_val + max_text_width_val
+        )
+        height_val = gradient_height_val + max_text_height_val
+        return g, width_val, height_val
 
     def _resolve_continuous(self, ctx: ResolveContext) -> Element:
         """Resolve continuous color scale into gradient with tick marks."""
@@ -474,6 +714,16 @@ class Key(Element):
                 return self._shape_abs_bounds()
             return mm(0), mm(0)
 
+        # Combined color + shape key: measure the stacked sections.
+        if self._shape_scale is not None:
+            sections = self._combined_sections()
+            if not sections:
+                return mm(0), mm(0)
+            gap = self._section_gap()
+            width_val = max(w for _el, w, _h in sections)
+            height_val = sum(h for _el, _w, h in sections) + gap * (len(sections) - 1)
+            return mm(width_val), mm(height_val)
+
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
         square_size = self.attrib["square_size"]
@@ -550,36 +800,10 @@ class Key(Element):
 
     def _shape_abs_bounds(self) -> tuple[AbsLengths, AbsLengths]:
         assert self._shape_labels is not None
-
-        font_family = self.attrib["font_family"]
-        font_size = self.attrib["font_size"]
-        square_size = self.attrib["square_size"]
-        spacing = self.attrib["spacing"]
-
-        assert isinstance(font_family, str)
-        assert isinstance(font_size, AbsLengths)
-        assert isinstance(square_size, AbsLengths)
-        assert isinstance(spacing, AbsLengths)
-
-        font = Font(font_family, font_size)
-
-        square_size_val = square_size.scalar_value()
-        spacing_val = spacing.scalar_value()
-
-        max_text_width_val = 0.0
-        total_height_val = 0.0
-
-        labels = list(self._shape_labels)
-        for i, label in enumerate(labels):
-            text_width, _text_height = font.get_extents(str(label))
-            max_text_width_val = max(max_text_width_val, text_width.scalar_value())
-
-            total_height_val += square_size_val
-            if i < len(labels) - 1:
-                total_height_val += spacing_val
-
-        total_width_val = square_size_val + spacing_val + max_text_width_val
-        return (mm(total_width_val), mm(total_height_val))
+        _el, width_val, height_val = self._marker_section(
+            list(self._shape_labels), None, self._shapes
+        )
+        return mm(width_val), mm(height_val)
 
 
 def key(*args, **kwargs):
