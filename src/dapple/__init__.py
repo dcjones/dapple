@@ -1,10 +1,35 @@
-from .colors import color
-from .coordinates import cm, cx, cxv, cy, cyv, inch, mm, pt, vh, vhv, vw, vwv
-from .elements import hstack, pad, vstack
+from .clipboard import copy_png, copy_svg
+from .colors import Colors, color, distinguishable_colors
+from .config import ChooseTicksParams, Config, ConfigKey, default_config
+from .coordinates import (
+    AbsLengths,
+    Lengths,
+    cm,
+    cx,
+    cxv,
+    cy,
+    cyv,
+    fh,
+    fhv,
+    fw,
+    fwv,
+    inch,
+    mm,
+    pt,
+    translate,
+    vh,
+    vhv,
+    vw,
+    vwv,
+)
+from .elements import Element, Path, hstack, pad, viewport, vstack
+from .export import svg_to_eps, svg_to_pdf, svg_to_png, svg_to_ps
 from .hclust_order import HClustOrder
 from .layout import Position
-from .plot import plot
+from .plot import Plot, plot
 from .scales import (
+    Scale,
+    TickCoverage,
     colorcontinuous,
     colordiscrete,
     shapediscrete,
@@ -13,5 +38,145 @@ from .scales import (
     xdiscrete,
     ycontinuous,
     ydiscrete,
-    TickCoverage
 )
+from .shapes import Shapes
+
+# Imported last: the geometry modules depend on the modules above. Every
+# geometry constructor is also re-exported here so that a single
+# `import dapple as dp` is enough to build a plot.
+from . import geometry
+from .geometry import (
+    density,
+    heatmap,
+    hexbin,
+    histogram,
+    histogram2d,
+    horizontal_bars,
+    horizontal_violin,
+    image,
+    key,
+    labels,
+    line,
+    lines,
+    points,
+    rasterized_heatmap,
+    rasterized_points,
+    rasterized_polygon_outlines,
+    rasterized_polygons,
+    rasterized_segments,
+    segments,
+    stacked_horizontal_bars,
+    stacked_vertical_bars,
+    title,
+    vertical_bars,
+    vertical_violin,
+    violin,
+    xgrids,
+    xlabel,
+    xticklabels,
+    xticks,
+    ygrids,
+    ylabel,
+    yticklabels,
+    yticks,
+)
+
+__all__ = [
+    # plotting
+    "Plot",
+    "plot",
+    # colors
+    "Colors",
+    "color",
+    "distinguishable_colors",
+    # shapes
+    "Shapes",
+    # coordinates and units
+    "AbsLengths",
+    "Lengths",
+    "cm",
+    "cx",
+    "cxv",
+    "cy",
+    "cyv",
+    "fh",
+    "fhv",
+    "fw",
+    "fwv",
+    "inch",
+    "mm",
+    "pt",
+    "translate",
+    "vh",
+    "vhv",
+    "vw",
+    "vwv",
+    # elements
+    "Element",
+    "Path",
+    "hstack",
+    "pad",
+    "viewport",
+    "vstack",
+    # scales
+    "Scale",
+    "TickCoverage",
+    "colorcontinuous",
+    "colordiscrete",
+    "shapediscrete",
+    "sizecontinuous",
+    "xcontinuous",
+    "xdiscrete",
+    "ycontinuous",
+    "ydiscrete",
+    # configuration
+    "ChooseTicksParams",
+    "Config",
+    "ConfigKey",
+    "default_config",
+    # layout and ordering
+    "HClustOrder",
+    "Position",
+    # output
+    "copy_png",
+    "copy_svg",
+    "svg_to_eps",
+    "svg_to_pdf",
+    "svg_to_png",
+    "svg_to_ps",
+    # geometry
+    "geometry",
+    "density",
+    "heatmap",
+    "hexbin",
+    "histogram",
+    "histogram2d",
+    "horizontal_bars",
+    "horizontal_violin",
+    "image",
+    "key",
+    "labels",
+    "line",
+    "lines",
+    "points",
+    "rasterized_heatmap",
+    "rasterized_points",
+    "rasterized_polygon_outlines",
+    "rasterized_polygons",
+    "rasterized_segments",
+    "segments",
+    "stacked_horizontal_bars",
+    "stacked_vertical_bars",
+    "title",
+    "vertical_bars",
+    "vertical_violin",
+    "violin",
+    "xgrids",
+    "xlabel",
+    "xticklabels",
+    "xticks",
+    "ygrids",
+    "ylabel",
+    "yticklabels",
+    "yticks",
+]
