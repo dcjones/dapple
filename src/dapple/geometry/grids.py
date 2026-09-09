@@ -4,6 +4,10 @@ from ..layout import Position
 from ..config import ConfigKey
 
 class XGrids(Element):
+    """
+    Draw vertical grid lines behind the plot at each x-axis tick.
+    """
+
     def __init__(
             self,
             stroke=ConfigKey("grid_stroke"),
@@ -46,9 +50,25 @@ class XGrids(Element):
         return g.resolve(ctx)
 
 def xgrids(*args, **kwargs):
+    """
+    Draw vertical grid lines at each x-axis tick.
+
+    Included in plots by default; pass a call to this to override its
+    appearance.
+
+    Args:
+        stroke: Grid line color (default: config "grid_stroke").
+        stroke_width: Grid line width (default: config "grid_stroke_width").
+        dasharray: SVG dash pattern for the grid lines
+            (default: config "grid_stroke_dasharray").
+    """
     return XGrids(*args, **kwargs)
 
 class YGrids(Element):
+    """
+    Draw horizontal grid lines behind the plot at each y-axis tick.
+    """
+
     def __init__(
             self,
             stroke=ConfigKey("grid_stroke"),
@@ -91,4 +111,16 @@ class YGrids(Element):
         return g.resolve(ctx)
 
 def ygrids(*args, **kwargs):
+    """
+    Draw horizontal grid lines at each y-axis tick.
+
+    Included in plots by default; pass a call to this to override its
+    appearance.
+
+    Args:
+        stroke: Grid line color (default: config "grid_stroke").
+        stroke_width: Grid line width (default: config "grid_stroke_width").
+        dasharray: SVG dash pattern for the grid lines
+            (default: config "grid_stroke_dasharray").
+    """
     return YGrids(*args, **kwargs)

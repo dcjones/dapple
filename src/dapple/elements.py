@@ -349,6 +349,17 @@ class Element(Resolvable):
     ) -> "Element":
         """
         Given an absolute plot size, resolve the the plot into a pure SVG.
+
+        Args:
+            width: Width of the output (an `AbsLengths` such as `mm(100)`, or a
+                number interpreted as millimeters).
+            height: Height of the output, in the same terms as `width`.
+            output: Where to write the SVG. A path (str or `pathlib.Path`), an
+                open text file, or None to only return the element tree.
+            clip: When true, also copy the SVG to the system clipboard.
+
+        Returns:
+            The root "svg" element of the resolved tree.
         """
 
         if not isinstance(width, AbsLengths):
@@ -751,6 +762,24 @@ def viewport(
     width: Lengths | None = None,
     height: Lengths | None = None,
 ) -> Element:
+    """
+    Place one or more elements in a rectangular sub-region, establishing a new
+    viewport coordinate system.
+
+    Within the returned viewport, `vw` and `vh` (and their vector forms `vwv`,
+    `vhv`) are relative to `width` and `height` rather than to the enclosing
+    viewport.
+
+    Args:
+        children: Element or iterable of elements to place in the viewport.
+        x: Position of the viewport's left edge (default: `mm(0)`).
+        y: Position of the viewport's top edge (default: `mm(0)`).
+        width: Width of the viewport (default: the remaining width, `vw(1) - x`).
+        height: Height of the viewport (default: the remaining height, `vh(1) - y`).
+
+    Returns:
+        A "g" element carrying the viewport's coordinates and transform.
+    """
     if x is None:
         x = mm(0)
     if y is None:
@@ -785,6 +814,20 @@ def pad(
     bottom: None | AbsLengths = None,
     left: None | AbsLengths = None,
 ) -> Element:
+    """
+    Inset an element by a margin on each side.
+
+    Args:
+        el: The element to pad.
+        padding: Padding applied to every side not given explicitly (default: `mm(0)`).
+        top: Padding above `el`, overriding `padding`.
+        right: Padding to the right of `el`, overriding `padding`.
+        bottom: Padding below `el`, overriding `padding`.
+        left: Padding to the left of `el`, overriding `padding`.
+
+    Returns:
+        A viewport containing `el`, shrunk by the given padding.
+    """
     if padding is None:
         padding = mm(0)
 
@@ -801,6 +844,16 @@ def pad(
 
 
 def hstack(*els: Element) -> Element:
+    """
+    Arrange elements side by side in equally sized viewports, left to right.
+
+    Args:
+        *els: Elements to arrange. Each gets a viewport `1 / len(els)` of the
+            enclosing viewport's width.
+
+    Returns:
+        A "g" element containing one viewport per argument.
+    """
     n = len(els)
     parent = Element("g")
 
@@ -812,6 +865,16 @@ def hstack(*els: Element) -> Element:
 
 
 def vstack(*els: Element) -> Element:
+    """
+    Arrange elements in equally sized viewports, stacked top to bottom.
+
+    Args:
+        *els: Elements to arrange. Each gets a viewport `1 / len(els)` of the
+            enclosing viewport's height.
+
+    Returns:
+        A "g" element containing one viewport per argument.
+    """
     n = len(els)
     parent = Element("g")
 

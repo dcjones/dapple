@@ -536,10 +536,48 @@ class ScaleDiscreteLength(ScaleDiscrete):
 
 
 def xdiscrete(*args: Any, **kwargs: Any) -> ScaleDiscreteLength:
+    """
+    Construct a discrete x scale, mapping categorical values onto evenly spaced
+    x positions.
+
+    Args:
+        values: Optionally fixes the values the scale maps, and their order. A
+            sequence gives the values in the order they should appear; a mapping
+            gives, for each value, either a label, a target, or a
+            (label, target) pair.
+        fixed: When true, raise an error if the data contains a value not listed
+            in `values`, rather than extending the scale.
+        labeler: Function mapping a sequence of values to their label strings.
+        order_by: Function used to order the values. Called with the values, or
+            with the values and their preliminary targets, if it accepts two
+            arguments. Pass None to keep insertion order.
+
+    Returns:
+        A `ScaleDiscreteLength` to be passed to `plot`.
+    """
     return ScaleDiscreteLength("x", *args, **kwargs)
 
 
 def ydiscrete(*args: Any, **kwargs: Any) -> ScaleDiscreteLength:
+    """
+    Construct a discrete y scale, mapping categorical values onto evenly spaced
+    y positions.
+
+    Args:
+        values: Optionally fixes the values the scale maps, and their order. A
+            sequence gives the values in the order they should appear; a mapping
+            gives, for each value, either a label, a target, or a
+            (label, target) pair.
+        fixed: When true, raise an error if the data contains a value not listed
+            in `values`, rather than extending the scale.
+        labeler: Function mapping a sequence of values to their label strings.
+        order_by: Function used to order the values. Called with the values, or
+            with the values and their preliminary targets, if it accepts two
+            arguments. Pass None to keep insertion order.
+
+    Returns:
+        A `ScaleDiscreteLength` to be passed to `plot`.
+    """
     return ScaleDiscreteLength("y", *args, **kwargs)
 
 
@@ -636,6 +674,29 @@ class ScaleDiscreteColor(ScaleDiscrete):
 
 
 def colordiscrete(*args: Any, **kwargs: Any) -> ScaleDiscreteColor:
+    """
+    Construct a discrete color scale, mapping categorical values onto colors
+    drawn from a colormap.
+
+    Args:
+        colormap: A colormap, a sequence of colors, or a callable taking the
+            number of distinct values and returning a colormap (e.g.
+            `distinguishable_colors`). Defaults to the config's
+            "discrete_cmap".
+        values: Optionally fixes the values the scale maps, and their order. A
+            sequence gives the values in the order they should appear; a mapping
+            gives, for each value, either a label, a target, or a
+            (label, target) pair.
+        fixed: When true, raise an error if the data contains a value not listed
+            in `values`, rather than extending the scale.
+        labeler: Function mapping a sequence of values to their label strings.
+        order_by: Function used to order the values. Called with the values, or
+            with the values and their preliminary targets, if it accepts two
+            arguments. Pass None to keep insertion order.
+
+    Returns:
+        A `ScaleDiscreteColor` to be passed to `plot`.
+    """
     return ScaleDiscreteColor("color", *args, **kwargs)
 
 
@@ -707,6 +768,25 @@ class ScaleDiscreteShape(ScaleDiscrete):
 
 
 def shapediscrete(*args: Any, **kwargs: Any) -> ScaleDiscreteShape:
+    """
+    Construct a discrete shape scale, mapping categorical values onto marker
+    shapes.
+
+    Args:
+        values: Optionally fixes the values the scale maps, and their order. A
+            sequence gives the values in the order they should appear; a mapping
+            gives, for each value, either a label, a target, or a
+            (label, target) pair.
+        fixed: When true, raise an error if the data contains a value not listed
+            in `values`, rather than extending the scale.
+        labeler: Function mapping a sequence of values to their label strings.
+        order_by: Function used to order the values. Called with the values, or
+            with the values and their preliminary targets, if it accepts two
+            arguments. Pass None to keep insertion order.
+
+    Returns:
+        A `ScaleDiscreteShape` to be passed to `plot`.
+    """
     return ScaleDiscreteShape("shape", *args, **kwargs)
 
 
@@ -726,6 +806,16 @@ TICK_STEP_OPTIONS = [
 
 
 class TickCoverage(Enum):
+    """
+    How the span of ticks on a continuous scale may relate to the data range.
+
+    Attributes:
+        Flexible: Ticks may fall slightly inside or outside the data range,
+            whichever gives nicer tick values.
+        StrictSub: Ticks must lie within the data range.
+        StrictSuper: Ticks must cover the data range.
+    """
+
     Flexible = 1
     StrictSub = 2
     StrictSuper = 3
@@ -1000,6 +1090,26 @@ class ScaleContinuousColor(ScaleContinuous):
 
 
 def colorcontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousColor:
+    """
+    Construct a continuous color scale, mapping numbers onto colors by
+    interpolating a colormap.
+
+    Args:
+        colormap: A colormap or sequence of colors to interpolate
+            (default: taken from the config's "continuous_cmap").
+        tick_coverage: A `TickCoverage` controlling whether ticks may extend
+            beyond the data range (default: taken from the config).
+        choose_tick_params: `ChooseTicksParams` tuning tick selection
+            (default: taken from the config).
+        min: Lower end of the scale. Defaults to the minimum of the data.
+        max: Upper end of the scale. Defaults to the maximum of the data.
+        mid: If given, the value placed at the middle of the colormap, with
+            `min` and `max` expanded symmetrically about it. Useful for
+            diverging colormaps.
+
+    Returns:
+        A `ScaleContinuousColor` to be passed to `plot`.
+    """
     return ScaleContinuousColor("color", *args, **kwargs)
 
 
@@ -1112,14 +1222,59 @@ class ScaleContinuousSize(ScaleContinuous):
 
 
 def xcontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
+    """
+    Construct a continuous x scale, mapping numbers onto x positions.
+
+    Args:
+        tick_coverage: A `TickCoverage` controlling whether ticks may extend
+            beyond the data range (default: taken from the config).
+        choose_tick_params: `ChooseTicksParams` tuning tick selection
+            (default: taken from the config).
+        min: Lower end of the scale. Defaults to the minimum of the data.
+        max: Upper end of the scale. Defaults to the maximum of the data.
+
+    Returns:
+        A `ScaleContinuousLength` to be passed to `plot`.
+    """
     return ScaleContinuousLength("x", *args, **kwargs)
 
 
 def ycontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
+    """
+    Construct a continuous y scale, mapping numbers onto y positions.
+
+    Args:
+        tick_coverage: A `TickCoverage` controlling whether ticks may extend
+            beyond the data range (default: taken from the config).
+        choose_tick_params: `ChooseTicksParams` tuning tick selection
+            (default: taken from the config).
+        min: Lower end of the scale. Defaults to the minimum of the data.
+        max: Upper end of the scale. Defaults to the maximum of the data.
+
+    Returns:
+        A `ScaleContinuousLength` to be passed to `plot`.
+    """
     return ScaleContinuousLength("y", *args, **kwargs)
 
 
 def sizecontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousSize:
+    """
+    Construct a continuous size scale, mapping numbers onto lengths, used for
+    example to vary point radius.
+
+    Args:
+        range_min: Length the smallest value maps to (default: `mm(0.2)`).
+        range_max: Length the largest value maps to (default: `mm(1.0)`).
+        tick_coverage: A `TickCoverage` controlling whether ticks may extend
+            beyond the data range (default: taken from the config).
+        choose_tick_params: `ChooseTicksParams` tuning tick selection
+            (default: taken from the config).
+        min: Lower end of the scale. Defaults to the minimum of the data.
+        max: Upper end of the scale. Defaults to the maximum of the data.
+
+    Returns:
+        A `ScaleContinuousSize` to be passed to `plot`.
+    """
     return ScaleContinuousSize(*args, **kwargs)
 
 

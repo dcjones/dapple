@@ -53,6 +53,19 @@ from .scales import (
 
 
 class Plot(Element):
+    """
+    Root element of a plot.
+
+    A `Plot` holds geometry elements, along with the scales and configuration
+    used to resolve them. It is typically built with the `plot` function rather
+    than constructed directly, and rendered with `Plot.svg`, `Plot.png`, or
+    `Plot.pdf`, each of which take an absolute width and height.
+
+    Elements appended to a plot are drawn in the focus area (the panel holding
+    the data), except for those declaring a `dapple:position`, such as titles,
+    axis labels, ticks, and keys, which are laid out in the surrounding margins.
+    """
+
     aspect_ratio: None | float = None
     flip_x: bool
     flip_y: bool
@@ -69,6 +82,16 @@ class Plot(Element):
         ),
         aspect_ratio: None | float = None,
     ):
+        """
+        Args:
+            defaults: Constructors for elements included in every plot unless
+                overridden. Appending an element with the same tag replaces the
+                default one, so passing an empty collection here suppresses the
+                default grids, ticks, and tick labels entirely.
+            aspect_ratio: If given, the height/width ratio the focus area is
+                held to, letterboxing it within the requested output size.
+        """
+
         self.aspect_ratio = aspect_ratio
 
         # TODO: expose options to set these
@@ -415,7 +438,22 @@ class Plot(Element):
 
 def plot(*args, **kwargs) -> Plot:
     """
-    Plot constructor interface.
+    Construct a `Plot` from geometry, scales, and configuration.
+
+    Args:
+        *args: Any mix of `Element` (geometry such as `points` or `line`, and
+            decorations such as `title` or `key`), `Scale` objects (e.g.
+            `xcontinuous()`, `colordiscrete()`) which override the scale
+            inferred for that unit, and at most one `Config` overriding
+            plot-wide defaults.
+        **kwargs: Passed on to `Plot`, e.g. `aspect_ratio` or `defaults`.
+
+    Returns:
+        A `Plot`, which can be further extended with `Plot.append` and rendered
+        with `Plot.svg`, `Plot.png`, or `Plot.pdf`.
+
+    Raises:
+        TypeError: If an argument is not an `Element`, `Scale`, or `Config`.
     """
     pl = Plot(**kwargs)
 

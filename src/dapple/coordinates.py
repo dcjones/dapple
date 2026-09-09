@@ -71,6 +71,20 @@ def _(arg, ctx) -> object:
 
 
 class Lengths(Resolvable, ABC):
+    """
+    Abstract base class for a vector of lengths.
+
+    A `Lengths` value is one or more distances expressed in some combination of
+    units, which may be absolute (millimeters) or contextual (data or viewport
+    coordinates that are only known once the plot is laid out). Lengths support
+    addition, subtraction, negation, and multiplication by a scalar, so
+    expressions like ``cx(3) + 2 * mm`` can be built before the coordinate
+    transform is known. Resolving a `Lengths` (see `Lengths.resolve`) yields
+    `AbsLengths`, i.e. plain millimeters.
+
+    Length values are treated as immutable. A `Lengths` of length one is a
+    "scalar" length, which is broadcast against longer vectors where needed.
+    """
     @abstractmethod
     def __len__(self) -> int:
         pass
@@ -346,11 +360,31 @@ def _(value, scale: float = 1.0) -> AbsLengths:
     return AbsLengths((scale * value).astype(np.float64))
 
 
-# The problem with doing it this way is that
+# Absolute unit constants. Each is a scalar `AbsLengths` that can be called or
+# multiplied to construct lengths in that unit, e.g. `mm(5)`, `5 * mm`,
+# `pt([8, 10, 12])`.
 mm = abslengths(1.0)
 cm = abslengths(10.0)
 pt = abslengths(0.352778)
 inch = abslengths(25.4)
+
+mm.__doc__ = """
+Millimeters, the absolute unit everything is ultimately resolved to.
+
+Use as `mm(5)`, `5 * mm`, or `mm([1.0, 2.0])`.
+"""
+
+cm.__doc__ = """
+Centimeters. Use as `cm(2)`, `2 * cm`, or `cm([1.0, 2.0])`.
+"""
+
+pt.__doc__ = """
+Typographic points (1/72 inch). Use as `pt(10)`, `10 * pt`, or `pt([8, 10])`.
+"""
+
+inch.__doc__ = """
+Inches. Use as `inch(1)`, `1 * inch`, or `inch([0.5, 1.0])`.
+"""
 
 
 class CtxLenType(Enum):
@@ -536,6 +570,14 @@ def _(value, unit: str, typ: CtxLenType, scale: float = 1.0) -> CtxLengths:
     return CtxLengths((scale * value).astype(np.float64), unit, typ)
 
 
+# Contextual unit constants. Each is a scalar `CtxLengths` that can be called or
+# multiplied to construct lengths in that unit, e.g. `cx(3)`, `3 * cx`,
+# `cx([1.0, 2.0])`.
+#
+# Units come in position and vector ("v" suffix) flavors. A position is
+# resolved by applying both the coordinate system's scale and its translation,
+# a vector only by its scale. Distances and sizes should therefore use the
+# vector flavor, so that they are unaffected by where the origin lands.
 cx = ctxlengths(1.0, "x", CtxLenType.Pos)
 cxv = ctxlengths(1.0, "x", CtxLenType.Vec)
 cy = ctxlengths(1.0, "y", CtxLenType.Pos)
@@ -545,9 +587,69 @@ vwv = ctxlengths(1.0, "vw", CtxLenType.Vec)
 vh = ctxlengths(1.0, "vh", CtxLenType.Pos)
 vhv = ctxlengths(1.0, "vh", CtxLenType.Vec)
 fw = ctxlengths(1.0, "fw", CtxLenType.Pos)
-fwv = ctxlengths(1.0, "fwv", CtxLenType.Vec)
+fwv = ctxlengths(1.0, "fw", CtxLenType.Vec)
 fh = ctxlengths(1.0, "fh", CtxLenType.Pos)
-fhv = ctxlengths(1.0, "fhv", CtxLenType.Vec)
+fhv = ctxlengths(1.0, "fh", CtxLenType.Vec)
+
+cx.__doc__ = """
+Position in x data coordinates, as defined by the plot's x scale.
+
+Use as `cx(3)`, `3 * cx`, or `cx([1.0, 2.0])`.
+"""
+
+cxv.__doc__ = """
+Distance in x data coordinates: like `cx`, but unaffected by the position of
+the origin, so appropriate for widths and offsets.
+"""
+
+cy.__doc__ = """
+Position in y data coordinates, as defined by the plot's y scale.
+
+Use as `cy(3)`, `3 * cy`, or `cy([1.0, 2.0])`.
+"""
+
+cyv.__doc__ = """
+Distance in y data coordinates: like `cy`, but unaffected by the position of
+the origin, so appropriate for heights and offsets.
+"""
+
+vw.__doc__ = """
+Position as a fraction of the width of the enclosing viewport, so that `vw(0)`
+is its left edge and `vw(1)` its right edge.
+"""
+
+vwv.__doc__ = """
+Distance as a fraction of the width of the enclosing viewport. `vwv(1)` is the
+full viewport width regardless of where the viewport begins.
+"""
+
+vh.__doc__ = """
+Position as a fraction of the height of the enclosing viewport, so that `vh(0)`
+is its top edge and `vh(1)` its bottom edge.
+"""
+
+vhv.__doc__ = """
+Distance as a fraction of the height of the enclosing viewport. `vhv(1)` is the
+full viewport height regardless of where the viewport begins.
+"""
+
+fw.__doc__ = """
+Position as a fraction of the width of the plot's focus area: the panel holding
+the data, excluding margins occupied by titles, labels, and ticks.
+"""
+
+fwv.__doc__ = """
+Distance as a fraction of the width of the plot's focus area.
+"""
+
+fh.__doc__ = """
+Position as a fraction of the height of the plot's focus area: the panel
+holding the data, excluding margins occupied by titles, labels, and ticks.
+"""
+
+fhv.__doc__ = """
+Distance as a fraction of the height of the plot's focus area.
+"""
 
 
 @dataclass
@@ -991,6 +1093,17 @@ class Transform(Resolvable):
 
 
 def translate(x: Lengths, y: Lengths) -> Transform:
+    """
+    Construct a translation transform, suitable for an element's "transform"
+    attribute.
+
+    Args:
+        x: Scalar length to shift by horizontally.
+        y: Scalar length to shift by vertically.
+
+    Returns:
+        A `Transform` that is resolved to an SVG transform.
+    """
     return Transform(1.0, 0.0, 0.0, 1.0, x, y)
 
 

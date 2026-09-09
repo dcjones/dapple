@@ -82,6 +82,16 @@ class Colors(Serializable):
 
 @singledispatch
 def color(value) -> Colors:
+    """
+    Convert a color specification into a `Colors` value.
+
+    Args:
+        value: A color name or CSS-style string (e.g. "red", "#ff0000"), a
+            `coloraide` `Color`, or a list of either.
+
+    Returns:
+        `Colors` holding one RGBA color per input value.
+    """
     raise NotImplementedError(f"Type {type(value)} can't be converted to colors.")
 
 

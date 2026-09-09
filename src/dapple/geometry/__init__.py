@@ -1,3 +1,10 @@
+"""
+Plot geometry: constructors for the elements a plot is built from.
+
+Everything exported here is also re-exported from the top-level `dapple`
+module, so `import dapple as dp` is enough to build a plot.
+"""
+
 from .bars import horizontal_bars, vertical_bars
 from .grids import xgrids, ygrids
 from .heatmap import heatmap

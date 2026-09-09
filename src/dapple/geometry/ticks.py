@@ -123,6 +123,17 @@ class XTicks(Element):
 
 
 def xticks(*args, **kwargs):
+    """
+    Draw tick marks and an axis line along the bottom of the plot.
+
+    Included in plots by default; pass a call to this to override its
+    appearance.
+
+    Args:
+        stroke: Tick and axis line color (default: config "tick_stroke").
+        stroke_width: Tick line width (default: config "tick_stroke_width").
+        tick_length: Length of the tick marks (default: config "tick_length").
+    """
     return XTicks(*args, **kwargs)
 
 
@@ -241,4 +252,15 @@ class YTicks(Element):
 
 
 def yticks(*args, **kwargs):
+    """
+    Draw tick marks and an axis line along the left side of the plot.
+
+    Included in plots by default; pass a call to this to override its
+    appearance.
+
+    Args:
+        stroke: Tick and axis line color (default: config "tick_stroke").
+        stroke_width: Tick line width (default: config "tick_stroke_width").
+        tick_length: Length of the tick marks (default: config "tick_length").
+    """
     return YTicks(*args, **kwargs)

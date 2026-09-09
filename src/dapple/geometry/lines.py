@@ -321,6 +321,21 @@ class SegmentsElement(Element):
 
 
 def segments(x1, y1, x2, y2, color=ConfigKey("linecolor"), arrow=False) -> Element:
+    """
+    Draw one or more straight line segments.
+
+    Args:
+        x1: X coordinates of the segment start points.
+        y1: Y coordinates of the segment start points.
+        x2: X coordinates of the segment end points.
+        y2: Y coordinates of the segment end points.
+        color: Segment color(s), passed through the color scale
+            (default: config "linecolor").
+        arrow: When true, draw an arrowhead at each segment's end point.
+
+    Returns:
+        A `SegmentsElement` holding the segment geometry.
+    """
     return SegmentsElement(x1, y1, x2, y2, color, ConfigKey("linestroke"), arrow)
 
 

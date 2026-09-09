@@ -159,6 +159,16 @@ class XLabel(Element):
 
 
 def xlabel(text: str, *args, **kwargs):
+    """
+    Draw a label for the x-axis, centered below the plot.
+
+    Args:
+        text: The label text.
+        font_family: Font family (default: config "label_font_family").
+        font_size: Font size (default: config "label_font_size").
+        font_weight: Font weight (default: config "label_font_weight").
+        fill: Text color (default: config "label_fill").
+    """
     return XLabel(text, *args, **kwargs)
 
 
@@ -250,6 +260,16 @@ class YLabel(Element):
 
 
 def ylabel(text: str, *args, **kwargs):
+    """
+    Draw a label for the y-axis, rotated and centered to the left of the plot.
+
+    Args:
+        text: The label text.
+        font_family: Font family (default: config "label_font_family").
+        font_size: Font size (default: config "label_font_size").
+        font_weight: Font weight (default: config "label_font_weight").
+        fill: Text color (default: config "label_fill").
+    """
     return YLabel(text, *args, **kwargs)
 
 
@@ -331,6 +351,16 @@ class Title(Element):
 
 
 def title(text: str, *args, **kwargs):
+    """
+    Draw a title centered above the plot.
+
+    Args:
+        text: The title text.
+        font_family: Font family (default: config "title_font_family").
+        font_size: Font size (default: config "title_font_size").
+        font_weight: Font weight (default: config "title_font_weight").
+        fill: Text color (default: config "title_fill").
+    """
     return Title(text, *args, **kwargs)
 
 
@@ -530,6 +560,20 @@ class XTickLabels(Element):
 
 
 def xticklabels(*args, **kwargs):
+    """
+    Draw labels for each x-axis tick, below the plot.
+
+    Included in plots by default; pass a call to this to override its
+    appearance.
+
+    Args:
+        font_family: Font family (default: config "tick_label_font_family").
+        font_size: Font size (default: config "tick_label_font_size").
+        font_weight: Font weight (default: config "tick_label_font_weight").
+        fill: Text color (default: config "tick_label_fill").
+        rotate: When true, rotate the labels 90 degrees, which helps when
+            labels are long or numerous.
+    """
     return XTickLabels(*args, **kwargs)
 
 
@@ -715,6 +759,19 @@ class YTickLabels(Element):
 
 
 def yticklabels(*args, **kwargs):
+    """
+    Draw labels for each y-axis tick, to the left of the plot.
+
+    Included in plots by default; pass a call to this to override its
+    appearance.
+
+    Args:
+        font_family: Font family (default: config "tick_label_font_family").
+        font_size: Font size (default: config "tick_label_font_size").
+        font_weight: Font weight (default: config "tick_label_font_weight").
+        fill: Text color (default: config "tick_label_fill").
+        rotate: When true, rotate the labels 90 degrees.
+    """
     return YTickLabels(*args, **kwargs)
 
 
@@ -808,6 +865,26 @@ def labels(
     anchor="middle",
     alignment_baseline="middle",
 ):
+    """
+    Draw text at arbitrary positions within the plot.
+
+    Args:
+        x: X coordinates of the labels.
+        y: Y coordinates of the labels.
+        text: Label text: a single string, or one string per position.
+        font_family: Font family (default: config "labels_font_family").
+        font_size: Font size (default: config "labels_font_size").
+        font_weight: Font weight (default: config "labels_font_weight").
+        fill: Text color (default: config "labels_fill").
+        anchor: SVG "text-anchor": "start", "middle", or "end", giving the
+            horizontal alignment of the text about its position.
+        alignment_baseline: SVG "dominant-baseline": e.g. "middle", "hanging",
+            or "auto", giving the vertical alignment of the text about its
+            position.
+
+    Returns:
+        A `TextLabels` element.
+    """
     return TextLabels(
         {
             "x": length_params("x", x, CtxLenType.Pos),

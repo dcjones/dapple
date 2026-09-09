@@ -131,6 +131,31 @@ def rasterized_heatmap(
     y1: Iterable[Any] | None = None,
     exclude_diagonal: bool = False,
 ) -> RasterizedHeatmap:
+    """
+    Draw colored squares from a matrix of values, rendered to an embedded image
+    rather than to individual SVG rectangles.
+
+    Equivalent to `heatmap`, but far cheaper for large matrices. The raster
+    resolution is taken from the config's "rasterize_dpi".
+
+    Args:
+        color: 2D matrix of values mapped to the color scale.
+        x: Optional 1D sequence giving column center positions. Defaults to unit
+            spacing. Cannot be combined with `x0`/`x1`.
+        y: Optional 1D sequence giving row center positions. Defaults to unit
+            spacing. Cannot be combined with `y0`/`y1`.
+        x0: Optional 1D sequence giving each column's left edge, used with `x1`
+            to draw squares of varying width.
+        x1: Optional 1D sequence giving each column's right edge.
+        y0: Optional 1D sequence giving each row's top edge, used with `y1` to
+            draw squares of varying height.
+        y1: Optional 1D sequence giving each row's bottom edge.
+        exclude_diagonal: When true, omit squares where row index equals column
+            index.
+
+    Returns:
+        A `RasterizedHeatmap` element.
+    """
     return RasterizedHeatmap(
         color, x=x, y=y, x0=x0, x1=x1, y0=y0, y1=y1, exclude_diagonal=exclude_diagonal
     )
