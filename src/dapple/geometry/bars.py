@@ -84,12 +84,12 @@ class Bar(Element):
         if "width" in resolved_attrib:
             width = cast(AbsLengths, resolved_attrib.pop("width"))
         else:
-            width = cast(AbsLengths, resolved_attrib["x1"]) - x
+            width = cast(AbsLengths, resolved_attrib.pop("x1")) - x
 
         if "height" in resolved_attrib:
             height = cast(AbsLengths, resolved_attrib.pop("height"))
         else:
-            height = cast(AbsLengths, resolved_attrib["y1"]) - y
+            height = cast(AbsLengths, resolved_attrib.pop("y1")) - y
 
         nudge = resolved_attrib.pop("dapple:nudge", None)
 
@@ -187,7 +187,15 @@ def _prepare_bar_data(primary, primary_min, primary_max, default_width, axis_nam
         axis_name: Name of the axis ('x' or 'y') for error messages
 
     Returns:
-        Tuple of (position, width) where position is the left/bottom edge
+        Tuple of (position, width, end) where position is the left/bottom edge.
+        Exactly one of `width` and `end` is not None: `width` is used when bars
+        are centered on `primary`, `end` (the far edge) when an explicit range
+        is given. Passing the far edge directly, rather than a width expression
+        of the form `primary_max - primary_min`, keeps the coordinate bounds
+        tight: bounds are computed with interval arithmetic, so a difference of
+        two vector-valued positions would be bounded by
+        `min(primary_max) - max(primary_min)`, which can be far outside the
+        actual data range.
     """
     # Check that either primary or (primary_min and primary_max) are specified
     has_primary = primary is not None
@@ -210,15 +218,13 @@ def _prepare_bar_data(primary, primary_min, primary_max, default_width, axis_nam
         # position = primary - default_width/2
         # width = default_width (as a constant)
         position = primary - 0.5 * default_width
-        return position, default_width
+        return position, default_width, None
     else:
         # Use the explicit range
         primary_min = length_params(axis_name, primary_min, CtxLenType.Pos)
         primary_max = length_params(axis_name, primary_max, CtxLenType.Pos)
 
-        position = primary_min
-        width = primary_max - primary_min
-        return position, width
+        return primary_min, None, primary_max
 
 
 def vertical_bars(
@@ -252,7 +258,7 @@ def vertical_bars(
         raise ValueError("y parameter is required")
 
     # Prepare x position and width (default width is 1.0 in data coordinates)
-    x_pos, bar_width = _prepare_bar_data(x, xmin, xmax, cxv(1), "x")
+    x_pos, bar_width, x_end = _prepare_bar_data(x, xmin, xmax, cxv(1), "x")
 
     # Convert y to array
     y_array = np.asarray(y)
@@ -267,9 +273,13 @@ def vertical_bars(
     attrib = {
         "x": x_pos,
         "y": length_params("y", bar_y, CtxLenType.Pos),
-        "width": bar_width,
         "height": length_params("y", bar_height, CtxLenType.Vec),
     }
+
+    if x_end is not None:
+        attrib["x1"] = x_end
+    else:
+        attrib["width"] = bar_width
 
     if color is not None:
         attrib["fill"] = color_params("color", color)
@@ -310,7 +320,7 @@ def horizontal_bars(
         raise ValueError("x parameter is required")
 
     # Prepare y position and height (default height is 1.0 in data coordinates)
-    y_pos, bar_height = _prepare_bar_data(y, ymin, ymax, cyv(0.8), "y")
+    y_pos, bar_height, y_end = _prepare_bar_data(y, ymin, ymax, cyv(0.8), "y")
 
     # Convert x to array
     x_array = np.asarray(x)
@@ -326,8 +336,12 @@ def horizontal_bars(
         "x": length_params("x", bar_x, CtxLenType.Pos),
         "y": y_pos,
         "width": length_params("x", bar_width, CtxLenType.Vec),
-        "height": bar_height,
     }
+
+    if y_end is not None:
+        attrib["y1"] = y_end
+    else:
+        attrib["height"] = bar_height
 
     if color is not None:
         attrib["fill"] = color_params("color", color)

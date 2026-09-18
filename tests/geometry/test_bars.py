@@ -190,3 +190,31 @@ class TestBarElement:
         # Should store the values as given (resolution will handle corrections)
         assert bar.attrib["width"].scalar_value() == -5.0
         assert bar.attrib["height"].scalar_value() == -30.0
+
+
+class TestBarRangeAttributes:
+    """Bars given explicit ranges should store far edges, not width expressions."""
+
+    def test_vertical_bars_range_uses_x1(self):
+        bar = vertical_bars(y=[10, 20], xmin=[0.5, 1.5], xmax=[1.5, 2.5])
+
+        assert "x1" in bar.attrib
+        assert "width" not in bar.attrib
+
+    def test_vertical_bars_centered_uses_width(self):
+        bar = vertical_bars(x=[1, 2], y=[10, 20])
+
+        assert "width" in bar.attrib
+        assert "x1" not in bar.attrib
+
+    def test_horizontal_bars_range_uses_y1(self):
+        bar = horizontal_bars(x=[10, 20], ymin=[0.5, 1.5], ymax=[1.5, 2.5])
+
+        assert "y1" in bar.attrib
+        assert "height" not in bar.attrib
+
+    def test_horizontal_bars_centered_uses_height(self):
+        bar = horizontal_bars(y=[1, 2], x=[10, 20])
+
+        assert "height" in bar.attrib
+        assert "y1" not in bar.attrib
