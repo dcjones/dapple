@@ -66,6 +66,7 @@ def _hexbin_counts(
     y: np.ndarray,
     bins_x: int,
     bins_y: int,
+    weight: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float]:
     """
     Compute hexagonal bin counts for 2D data.
@@ -81,11 +82,14 @@ def _hexbin_counts(
         y: 1D array of y-coordinates.
         bins_x: Approximate number of hexagons spanning the x-axis.
         bins_y: Approximate number of hexagons spanning the y-axis.
+        weight: Optional 1D array of per-observation weights. When given,
+            each hexagon's count is the sum of the weights of the points it
+            contains rather than the number of points.
 
     Returns:
         Tuple of ``(cx, cy, counts, radius_x, radius_y)`` where ``cx`` and
         ``cy`` are 1D arrays of hexagon center coordinates, ``counts`` is a
-        1D array of point counts per hexagon, and ``radius_x``/``radius_y``
+        1D array of (possibly weighted) point counts per hexagon, and ``radius_x``/``radius_y``
         are the hexagon circumradii in each direction.
     """
     x_min, x_max = float(x.min()), float(x.max())
@@ -157,7 +161,7 @@ def _hexbin_counts(
     # Count points per hex using unique (q, r) keys
     keys = q.astype(np.int64) * 1000003 + r.astype(np.int64)
     unique_keys, inverse = np.unique(keys, return_inverse=True)
-    counts = np.bincount(inverse, minlength=len(unique_keys))
+    counts = np.bincount(inverse, weights=weight, minlength=len(unique_keys))
 
     # Get unique hex centers using the first occurrence for each key
     _, first_idx = np.unique(inverse, return_index=True)
@@ -448,13 +452,15 @@ def hexbin(
     y: ArrayLike,
     bins: int | Sequence[int] = 10,
     *,
+    weight: ArrayLike | None = None,
     rasterize: bool = False,
 ):
     """
     Render a hexagonal binning plot.
 
     Points are binned into hexagonal cells and the count in each cell is
-    mapped to the fill color scale.
+    mapped to the fill color scale. If ``weight`` is given, each cell's value
+    is instead the sum of the weights of the points it contains.
 
     Args:
         x: Sequence of x coordinates for input samples.
@@ -462,6 +468,8 @@ def hexbin(
         bins: Number of hexagons for each axis. Either a single integer
             applied to both dimensions or a pair ``(bins_x, bins_y)``.
             Defaults to ``10``.
+        weight: Optional sequence of per-observation weights, the same
+            length as ``x`` and ``y``.
         rasterize: When ``True``, returns a rasterized hexbin for improved
             performance with large bin counts. Defaults to ``False``.
 
@@ -469,7 +477,8 @@ def hexbin(
         A hexbin or rasterized hexbin element representing the binned counts.
 
     Raises:
-        ValueError: If ``x`` and ``y`` differ in length.
+        ValueError: If ``x`` and ``y`` differ in length, or if ``weight`` is
+            given and does not match their length.
         TypeError: If ``bins`` is not an integer or a pair of integers.
     """
     x_array = np.asarray(x, dtype=np.float64).ravel()
@@ -478,10 +487,16 @@ def hexbin(
     if x_array.shape != y_array.shape:
         raise ValueError("x and y must contain the same number of elements")
 
+    weight_array: np.ndarray | None = None
+    if weight is not None:
+        weight_array = np.asarray(weight, dtype=np.float64).ravel()
+        if weight_array.shape != x_array.shape:
+            raise ValueError("weight must contain the same number of elements as x and y")
+
     bins_x, bins_y = _normalize_bins(bins)
 
     cx, cy, counts, radius_x, radius_y = _hexbin_counts(
-        x_array, y_array, bins_x, bins_y
+        x_array, y_array, bins_x, bins_y, weight_array
     )
 
     if rasterize:

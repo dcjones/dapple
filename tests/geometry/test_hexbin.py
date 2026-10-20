@@ -71,6 +71,34 @@ class TestHexbinCounts:
         # More y bins should produce more hexagons
         assert len(cy_aniso) > len(cy_eq)
 
+    def test_weighted_counts_sum_weights(self):
+        x = np.full(4, 5.0)
+        y = np.full(4, 3.0)
+        weight = np.array([0.5, 1.0, 2.0, 3.5])
+        _, _, counts, _, _ = _hexbin_counts(x, y, bins_x=10, bins_y=10, weight=weight)
+        assert len(counts) == 1
+        np.testing.assert_allclose(counts[0], 7.0)
+
+    def test_weighted_total_preserved(self):
+        rng = np.random.default_rng(42)
+        x = rng.normal(size=500)
+        y = rng.normal(size=500)
+        weight = rng.uniform(size=500)
+        _, _, counts, _, _ = _hexbin_counts(x, y, bins_x=10, bins_y=10, weight=weight)
+        np.testing.assert_allclose(counts.sum(), weight.sum())
+
+    def test_unit_weights_match_unweighted(self):
+        rng = np.random.default_rng(42)
+        x = rng.normal(size=300)
+        y = rng.normal(size=300)
+        cx_u, cy_u, counts_u, _, _ = _hexbin_counts(x, y, bins_x=8, bins_y=8)
+        cx_w, cy_w, counts_w, _, _ = _hexbin_counts(
+            x, y, bins_x=8, bins_y=8, weight=np.ones(300)
+        )
+        np.testing.assert_allclose(cx_u, cx_w)
+        np.testing.assert_allclose(cy_u, cy_w)
+        np.testing.assert_allclose(counts_u, counts_w)
+
 
 class TestHexbinGeometry:
     """Tests for the hexbin geometry function."""
@@ -120,6 +148,21 @@ class TestHexbinGeometry:
             ValueError, match="x and y must contain the same number of elements"
         ):
             _ = hexbin([0.0, 1.0], [0.5])
+
+    def test_hexbin_accepts_weight(self):
+        rng = np.random.default_rng(42)
+        x = rng.normal(size=100)
+        y = rng.normal(size=100)
+        weight = rng.uniform(size=100)
+
+        element = hexbin(x, y, bins=5, weight=weight)
+        fill_attr = element.attrib["fill"]
+        assert isinstance(fill_attr, UnscaledValues)
+        np.testing.assert_allclose(np.sum(fill_attr.values), weight.sum())
+
+    def test_hexbin_requires_matching_weight_length(self):
+        with pytest.raises(ValueError, match="weight must contain the same number"):
+            _ = hexbin([0.0, 1.0], [0.0, 1.0], weight=[1.0])
 
     def test_hexbin_rejects_non_integer_bins(self):
         with pytest.raises(TypeError, match="bins must be an integer or a pair"):
