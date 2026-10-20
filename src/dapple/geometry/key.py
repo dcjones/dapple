@@ -1,6 +1,8 @@
 from typing import cast, override
 
 import numpy as np
+from cmap import Colormap
+from numpy.typing import NDArray
 
 from ..colors import Colors
 from ..config import ConfigKey
@@ -25,6 +27,62 @@ from ..scales import ScaleContinuousColor, ScaleDiscreteColor, ScaleDiscreteShap
 from ..shapes import ShapePaths, shape_path_d
 from ..textextents import Font
 from .bars import Bar
+
+
+def _continuous_key_layout(
+    scale: ScaleContinuousColor,
+) -> tuple[NDArray[np.str_], NDArray[np.float64], list[tuple[float, str]]]:
+    """
+    Compute tick labels, tick positions, and gradient stops for a continuous
+    color key.
+
+    The gradient spans the union of the scale's range and its ticks, so ticks
+    falling outside the data range are still drawn at their true positions.
+
+    Returns:
+        A tuple ``(labels, fractions, stops)`` where ``fractions`` gives each
+        tick's position along the gradient in ``[0, 1]`` (0 at the minimum)
+        and ``stops`` is a list of ``(offset, color_hex)`` gradient stops.
+    """
+    labels, ticks = scale.ticks()
+    assert isinstance(ticks, CtxLengths)
+    assert scale.min is not None and scale.max is not None
+    tick_vals = np.asarray(ticks.values, dtype=np.float64)
+
+    lo = float(scale.min)
+    hi = float(scale.max)
+    if len(tick_vals) > 0:
+        lo = min(lo, float(tick_vals.min()))
+        hi = max(hi, float(tick_vals.max()))
+
+    if hi > lo:
+        fractions = (tick_vals - lo) / (hi - lo)
+    else:
+        fractions = np.full(len(tick_vals), 0.5)
+
+    n_stops = 20
+    offsets = np.linspace(0.0, 1.0, n_stops)
+    colormap = scale.colormap
+    assert isinstance(colormap, Colormap)
+    stop_colors = Colors(colormap(scale.normalize(lo + offsets * (hi - lo))))
+    color_hexes = stop_colors.serialize()
+    assert isinstance(color_hexes, list)
+    stops = [(float(o), str(c)) for o, c in zip(offsets, color_hexes)]
+
+    return labels, fractions, stops
+
+
+def _gradient_def(gradient_id: str, stops: list[tuple[float, str]]) -> Element:
+    """Build a bottom-to-top ``linearGradient`` element from color stops."""
+    linear_gradient = Element(
+        "linearGradient",
+        {"id": gradient_id, "x1": "0%", "y1": "100%", "x2": "0%", "y2": "0%"},
+    )
+    for offset, color_hex in stops:
+        linear_gradient.append(
+            Element("stop", {"offset": f"{offset * 100}%", "stop-color": color_hex})
+        )
+    return linear_gradient
 
 
 class Key(Element):
@@ -385,7 +443,7 @@ class Key(Element):
         assert isinstance(tick_length, AbsLengths)
 
         font = Font(font_family, font_size)
-        tick_labels, _tick_positions = self._color_scale.ticks()
+        tick_labels, tick_fracs, stops = _continuous_key_layout(self._color_scale)
         n = len(tick_labels)
 
         max_text_width_val = 0.0
@@ -399,9 +457,14 @@ class Key(Element):
         gradient_width_val = gradient_width.scalar_value()
         tick_length_val = tick_length.scalar_value()
 
-        # Even tick spacing, tall enough that labels don't collide.
+        # Tall enough that the closest pair of tick labels doesn't collide,
+        # within reason when ticks are very unevenly spaced.
         gap = max(2.0 * max_text_height_val, spacing_val)
-        gradient_height_val = max((n - 1) * gap, gap)
+        min_frac_gap = float(np.min(np.diff(tick_fracs))) if n > 1 else 0.0
+        max_height_val = 3.0 * max((n - 1) * gap, gap)
+        gradient_height_val = (
+            min(gap / min_frac_gap, max_height_val) if min_frac_gap > 0 else gap
+        )
         top_pad = 0.5 * max_text_height_val
 
         g = Element(
@@ -416,24 +479,7 @@ class Key(Element):
 
         gradient_id = f"key-gradient-{id(self)}"
         defs = Element("defs")
-        linear_gradient = Element(
-            "linearGradient",
-            {"id": gradient_id, "x1": "0%", "y1": "100%", "x2": "0%", "y2": "0%"},
-        )
-        n_stops = 20
-        for i in range(n_stops):
-            position = i / (n_stops - 1)
-            colormap = self._color_scale.colormap
-            color_hex = Colors(colormap(np.array([position]))).serialize()
-            if isinstance(color_hex, list) and color_hex:
-                color_hex = color_hex[0]
-            linear_gradient.append(
-                Element(
-                    "stop",
-                    {"offset": f"{position * 100}%", "stop-color": color_hex},
-                )
-            )
-        defs.append(linear_gradient)
+        defs.append(_gradient_def(gradient_id, stops))
         g.append(defs)
 
         # Gradient rectangle (min at the bottom, max at the top).
@@ -452,8 +498,7 @@ class Key(Element):
 
         # Tick y positions: tick 0 (minimum) sits at the bottom.
         def tick_y(i: int) -> float:
-            frac = i / (n - 1) if n > 1 else 0.5
-            return top_pad + gradient_height_val * (1.0 - frac)
+            return top_pad + gradient_height_val * (1.0 - float(tick_fracs[i]))
 
         for i, label in enumerate(tick_labels):
             y = tick_y(i)
@@ -489,7 +534,7 @@ class Key(Element):
 
     def _resolve_continuous(self, ctx: ResolveContext) -> Element:
         """Resolve continuous color scale into gradient with tick marks."""
-        assert self._color_scale is not None
+        assert isinstance(self._color_scale, ScaleContinuousColor)
 
         font_family = self.attrib["font_family"]
         font_size = self.attrib["font_size"]
@@ -509,8 +554,7 @@ class Key(Element):
 
         font = Font(font_family, font_size)
 
-        # Get tick information from the continuous scale
-        tick_labels, tick_positions = self._color_scale.ticks()
+        tick_labels, tick_fracs, stops = _continuous_key_layout(self._color_scale)
 
         # Create gradient definition
         gradient_id = f"key-gradient-{id(self)}"
@@ -530,47 +574,8 @@ class Key(Element):
             },
         )
 
-        # Create defs element for gradient
         defs = Element("defs")
-        linear_gradient = Element(
-            "linearGradient",
-            {
-                "id": gradient_id,
-                "x1": "0%",
-                "y1": "100%",
-                "x2": "0%",
-                "y2": "0%",
-            },
-        )
-
-        # Add color stops based on the colormap
-        # For continuous scales, we'll create a smooth gradient
-        n_stops = 20
-        for i in range(n_stops):
-            position = i / (n_stops - 1)
-            # Map position to color using the scale's colormap
-            if hasattr(self._color_scale, "colormap"):
-                colormap = self._color_scale.colormap
-                # Call the colormap with a numpy array
-                color_rgba = colormap(np.array([position]))
-                # Convert to Colors object and serialize
-                colors_obj = Colors(color_rgba)
-                color_hex = colors_obj.serialize()
-                if isinstance(color_hex, list) and len(color_hex) > 0:
-                    color_hex = color_hex[0]
-            else:
-                color_hex = "#000000"  # fallback
-
-            stop = Element(
-                "stop",
-                {
-                    "offset": f"{position * 100}%",
-                    "stop-color": color_hex,
-                },
-            )
-            linear_gradient.append(stop)
-
-        defs.append(linear_gradient)
+        defs.append(_gradient_def(gradient_id, stops))
         g.append(defs)
 
         # Draw gradient rectangle
@@ -584,21 +589,15 @@ class Key(Element):
 
         g.append(gradient_rect)
 
-        # Calculate tick positions using vh coordinates
-        tick_positions_vals = []
-        for i in range(len(tick_labels)):
-            if len(tick_labels) > 1:
-                tick_positions_vals.append(i / (len(tick_labels) - 1))
-            else:
-                tick_positions_vals.append(0.5)
-
-        # Create Lengths array for tick positions
-        tick_y_positions = CtxLengths(
-            np.array(tick_positions_vals), "vh", CtxLenType.Pos
+        tick_y_positions = CtxLengths(tick_fracs, "vh", CtxLenType.Pos)
+        ticks_at_ends = (
+            len(tick_fracs) >= 2
+            and np.isclose(tick_fracs[0], 0.0)
+            and np.isclose(tick_fracs[-1], 1.0)
         )
 
-        # Draw axis line + end ticks as a single path when we have at least two ticks
-        if len(tick_y_positions) >= 2:
+        # Draw axis line + end ticks as a single path when ticks sit at both ends
+        if ticks_at_ends:
             gw = gradient_width.scalar_value()
             tl = tick_length.scalar_value()
             combined_x = mm([gw + tl, gw, gw, gw + tl])
@@ -678,11 +677,14 @@ class Key(Element):
         top_padding = mm(0)
         bottom_padding = mm(0)
         nudge = mm(1)
-        if len(tick_y_positions) > 1:
-            if tick_y_positions[0] == vh(0):
+        # Labels near either end of the gradient overhang it by up to half
+        # their height.
+        end_frac = 0.1
+        if len(tick_fracs) > 1:
+            if tick_fracs[0] < end_frac:
                 _text_width, text_height = font.get_extents(str(tick_labels[0]))
                 bottom_padding = 0.5 * text_height + nudge
-            if tick_y_positions[-1] == vh(1):
+            if tick_fracs[-1] > 1.0 - end_frac:
                 _text_width, text_height = font.get_extents(str(tick_labels[-1]))
                 top_padding = 0.5 * text_height + nudge
 

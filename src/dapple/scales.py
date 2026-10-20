@@ -10,7 +10,7 @@ from typing import Any, Callable, NamedTuple, TypeAlias, cast, override
 
 import numpy as np
 from cmap import Colormap, ColormapLike
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 from .colors import Colors
 from .shapes import NUM_SHAPES, Shapes
@@ -833,15 +833,579 @@ class TickCoverage(Enum):
             raise ValueError(f"Invalid tick coverage: {value}")
 
 
-# TODO:
-#  - Bijections (i.e. log scales)
-#  - Fixed tick spans
+_TICK_CONSTRAINT_PENALTY = 10000.0
+
+
+def _tick_score(
+    t0: float,
+    tk: float,
+    k: int,
+    niceness: float,
+    includes_origin: bool,
+    dmin: float,
+    dmax: float,
+    coverage: TickCoverage,
+    params: ChooseTicksParams,
+) -> float:
+    """
+    Score a candidate run of ``k`` ticks spanning ``[t0, tk]`` against the data
+    range ``[dmin, dmax]``, following Wilkinson's ad-hoc scoring method.
+
+    All positions must be in a space where ticks are compared linearly (e.g.
+    log space for log ticks). ``includes_origin`` rewards ticks containing a
+    natural reference point, such as zero on a linear scale.
+    """
+    score = niceness * params.niceness_weight
+
+    if includes_origin:
+        score += params.simplicity_weight
+
+    if 0 < k and k < 2 * params.k_ideal:
+        score += (
+            1 - abs(k - params.k_ideal) / params.k_ideal
+        ) * params.granularity_weight
+
+    coverage_jaccard = (min(dmax, tk) - max(dmin, t0)) / (max(dmax, tk) - min(dmin, t0))
+    score += coverage_jaccard * params.coverage_weight
+
+    # strict-ish limits on coverage
+    if coverage == TickCoverage.StrictSub and (t0 < dmin or tk > dmax):
+        score -= _TICK_CONSTRAINT_PENALTY
+    elif coverage == TickCoverage.StrictSuper and (t0 > dmin or tk < dmax):
+        score -= _TICK_CONSTRAINT_PENALTY
+
+    return score
+
+
+def linear_ticks(
+    dmin: float,
+    dmax: float,
+    coverage: TickCoverage,
+    params: ChooseTicksParams,
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """
+    Choose evenly spaced ticks for the range ``[dmin, dmax]`` via a version of
+    Wilkinson's ad-hoc scoring method.
+
+    Returns:
+        A tuple ``(ticks, subticks)``.
+    """
+    scale_span = dmax - dmin
+
+    if scale_span == 0.0:
+        t0 = round(dmin - 1.0)
+        t1 = round(dmin + 1.0)
+        return np.array([t0, t1], dtype=float), np.array([], dtype=float)
+
+    high_score = -np.inf
+
+    oom_best = 0.0
+    k_best = 0
+    t0_best = 0.0
+    step_best = 0.0
+    substep_best = 0.0
+
+    # Consider all orders of magnitude where we can span the range with k_max ticks
+    oom = np.ceil(np.log10(scale_span))
+    while params.k_max * 10.0 ** (oom + 1) > scale_span:
+        # Consider numbers of ticks
+        for k in range(params.k_min, params.k_max + 1):
+            # Consider steps
+            for step in TICK_STEP_OPTIONS:
+                step_size = step.tick_step * 10.0**oom
+                if step_size == 0.0:
+                    continue
+
+                t0 = step_size * np.floor(dmin / step_size)
+
+                # Consider tick starting places
+                while t0 <= dmax:
+                    tk = t0 + (k - 1) * step_size
+                    has_zero = t0 <= 0 and np.abs(t0 / step_size) < k
+                    score = _tick_score(
+                        t0, tk, k, step.niceness, has_zero, dmin, dmax, coverage, params
+                    )
+
+                    if score > high_score:
+                        high_score = score
+                        oom_best = oom
+                        k_best = k
+                        t0_best = t0
+                        step_best = step.tick_step
+                        substep_best = step.subtick_step
+
+                    t0 += step_size / 2
+
+        oom -= 1
+
+    if not np.isfinite(high_score):
+        t0 = round(dmin - 1.0)
+        t1 = round(dmin + 1.0)
+        return np.array([t0, t1], dtype=float), np.array([], dtype=float)
+
+    # ticks
+    step_size = step_best * 10.0**oom_best
+    ticks = np.zeros(k_best, dtype=float)
+    for i in range(k_best):
+        ticks[i] = t0_best + i * step_size
+
+    # subticks
+    k_sub = int(round((k_best - 1) * step_best / substep_best))
+    step_size = substep_best * 10.0**oom_best
+    subticks = np.zeros(k_sub, dtype=float)
+    for i in range(k_sub):
+        subticks[i] = t0_best + i * step_size
+
+    return ticks, subticks
+
+
+def _linear_ticks_in_domain(
+    dmin: float,
+    dmax: float,
+    coverage: TickCoverage,
+    params: ChooseTicksParams,
+    in_domain: Callable[[NDArray[np.float64]], NDArray[np.bool_]],
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """
+    Linear ticks, discarding any that fall outside a transform's domain.
+
+    Falls back on strictly interior ticks, then on the range endpoints, if too
+    few ticks survive.
+    """
+    for cov in (coverage, TickCoverage.StrictSub):
+        ticks, subticks = linear_ticks(dmin, dmax, cov, params)
+        ticks = ticks[in_domain(ticks)]
+        if len(ticks) >= 2:
+            return ticks, subticks[in_domain(subticks)]
+    return np.array([dmin, dmax], dtype=float), np.array([], dtype=float)
+
+
+class LogTickSequence(NamedTuple):
+    """
+    A family of candidate log-scale ticks: ``mantissa * tick_base**exponent``
+    for every exponent that is a multiple of ``exponent_step``.
+    """
+
+    mantissas: tuple[float, ...]
+    exponent_step: int
+    niceness: float
+
+
+LOG10_TICK_OPTIONS = [
+    LogTickSequence((1.0,), 1, 1.0),
+    LogTickSequence((1.0, 2.0, 5.0), 1, 0.7),
+    LogTickSequence((1.0, 3.0), 1, 0.5),
+    LogTickSequence((1.0,), 2, 0.8),
+    LogTickSequence((1.0,), 5, 0.7),
+    LogTickSequence((1.0,), 3, 0.5),
+    LogTickSequence((1.0,), 10, 0.6),
+    LogTickSequence((1.0,), 20, 0.5),
+    LogTickSequence((1.0,), 50, 0.4),
+    LogTickSequence((1.0,), 100, 0.3),
+]
+
+LOG2_TICK_OPTIONS = [
+    LogTickSequence((1.0,), 1, 1.0),
+    LogTickSequence((1.0,), 2, 0.8),
+    LogTickSequence((1.0,), 4, 0.6),
+    LogTickSequence((1.0,), 5, 0.5),
+    LogTickSequence((1.0,), 10, 0.5),
+    LogTickSequence((1.0,), 20, 0.4),
+    LogTickSequence((1.0,), 50, 0.3),
+    LogTickSequence((1.0,), 100, 0.3),
+]
+
+
+def _log_base(x: Any, base: int) -> Any:
+    """Logarithm that is exact for powers of 10 and 2."""
+    if base == 10:
+        return np.log10(x)
+    if base == 2:
+        return np.log2(x)
+    return np.log(x) / np.log(base)
+
+
+def _log_tick_values(
+    mantissas: tuple[float, ...], tick_base: int, exponents: NDArray[np.int64]
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Return ``(values, log_positions)`` for each mantissa/exponent pair."""
+    e = np.repeat(exponents, len(mantissas)).astype(np.float64)
+    m = np.tile(np.asarray(mantissas, dtype=np.float64), len(exponents))
+    # Dividing by a positive power is more accurate than multiplying by a
+    # negative one (e.g. 3 / 1000 == 0.003 but 3 * 10**-3 != 0.003).
+    values = np.where(e >= 0, m * float(tick_base) ** e, m / float(tick_base) ** -e)
+    positions = e + _log_base(m, tick_base)
+    return values, positions
+
+
+def log_ticks(
+    dmin: float,
+    dmax: float,
+    coverage: TickCoverage,
+    params: ChooseTicksParams,
+    tick_base: int = 10,
+    options: Sequence[LogTickSequence] | None = None,
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """
+    Choose ticks for a logarithmic scale over the positive range ``[dmin, dmax]``.
+
+    Candidates are runs of powers of ``tick_base`` (possibly skipping some, or
+    with intermediate mantissas like 2 and 5), scored in log space with the same
+    criteria as `linear_ticks`. Ranges spanning less than one power of
+    ``tick_base`` fall back on linear ticks.
+
+    Returns:
+        A tuple ``(ticks, subticks)`` in data space.
+    """
+    if options is None:
+        options = LOG10_TICK_OPTIONS if tick_base == 10 else LOG2_TICK_OPTIONS
+
+    def positive(x: NDArray[np.float64]) -> NDArray[np.bool_]:
+        return x > 0
+
+    lmin = float(_log_base(np.float64(dmin), tick_base))
+    lmax = float(_log_base(np.float64(dmax), tick_base))
+
+    if lmax <= lmin:
+        e = np.floor(lmin)
+        return (
+            np.array([float(tick_base) ** e, float(tick_base) ** (e + 1)]),
+            np.array([], dtype=float),
+        )
+
+    if lmax - lmin < 1.0:
+        return _linear_ticks_in_domain(dmin, dmax, coverage, params, positive)
+
+    # Tolerate rounding error from round-tripping the range through the
+    # transform, so ticks landing exactly on the data range aren't rejected.
+    eps = 1e-9 * (lmax - lmin)
+    lmin -= eps
+    lmax += eps
+
+    high_score = -np.inf
+    best: tuple[NDArray[np.float64], LogTickSequence] | None = None
+
+    for option in options:
+        step = option.exponent_step
+        e_lo = int(np.floor(lmin / step)) - 1
+        e_hi = int(np.ceil(lmax / step)) + 1
+        exponents = np.arange(e_lo, e_hi + 1, dtype=np.int64) * step
+        values, positions = _log_tick_values(option.mantissas, tick_base, exponents)
+
+        n = len(values)
+        for i in range(n):
+            t0 = float(positions[i])
+            if t0 > lmax:
+                break
+            for k in range(params.k_min, params.k_max + 1):
+                if i + k > n:
+                    break
+                tk = float(positions[i + k - 1])
+                includes_one = t0 <= 0.0 <= tk
+                score = _tick_score(
+                    t0,
+                    tk,
+                    k,
+                    option.niceness,
+                    includes_one,
+                    lmin,
+                    lmax,
+                    coverage,
+                    params,
+                )
+                if score > high_score:
+                    high_score = score
+                    best = (values[i : i + k], option)
+
+    if best is None:
+        return _linear_ticks_in_domain(dmin, dmax, coverage, params, positive)
+
+    ticks, option = best
+
+    # Subticks: every power when powers are skipped, otherwise the full set of
+    # integer multiples within each power.
+    if option.exponent_step > 1 or tick_base != 10:
+        sub_mantissas: tuple[float, ...] = (1.0,)
+    else:
+        sub_mantissas = tuple(float(m) for m in range(1, 10))
+    e0 = int(np.floor(_log_base(ticks[0], tick_base)))
+    e1 = int(np.ceil(_log_base(ticks[-1], tick_base)))
+    subticks, _ = _log_tick_values(
+        sub_mantissas, tick_base, np.arange(e0, e1 + 1, dtype=np.int64)
+    )
+    eps = 1e-9 * (ticks[-1] - ticks[0])
+    subticks = subticks[(subticks >= ticks[0] - eps) & (subticks <= ticks[-1] + eps)]
+
+    return ticks.copy(), subticks
+
+
+_SUPERSCRIPTS = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
+
+
+def _label_log_numbers(xs: NDArray[np.float64], base: int = 10) -> NDArray[np.str_]:
+    """
+    Label ticks on a log scale. Values of moderate magnitude are written out in
+    full, otherwise every label is written in exponential form, e.g. ``10⁻⁴``
+    or ``2×10⁻⁴``.
+    """
+    nonzero = np.abs(xs[xs != 0])
+    if len(nonzero) == 0 or (np.all(nonzero >= 1e-3) and np.all(nonzero <= 1e4)):
+        return np.array(
+            [np.format_float_positional(float(x), trim="-") for x in xs], dtype=str
+        )
+
+    labels: list[str] = []
+    for x in xs:
+        x = float(x)
+        if x == 0:
+            labels.append("0")
+            continue
+        e = int(np.floor(_log_base(abs(x), base) + 1e-9))
+        mantissa = x / float(base) ** e
+        power = f"{base}{str(e).translate(_SUPERSCRIPTS)}"
+        if np.isclose(mantissa, 1.0):
+            labels.append(power)
+        elif np.isclose(mantissa, -1.0):
+            labels.append(f"-{power}")
+        else:
+            labels.append(f"{mantissa:.3g}×{power}")
+    return np.array(labels, dtype=str)
+
+
+class Transform(ABC):
+    """
+    A monotonically increasing transformation applied by a continuous scale
+    before it maps values linearly onto lengths, colors, or sizes.
+
+    Besides the forward mapping, a transform decides where ticks are placed
+    and how they are labeled, since nice ticks depend on the transformation
+    (e.g. powers of ten on a log scale).
+    """
+
+    name: str
+    domain: str
+
+    @abstractmethod
+    def forward(self, x: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Map data values into transformed space."""
+
+    @abstractmethod
+    def inverse(self, y: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Map transformed values back into data space."""
+
+    @abstractmethod
+    def in_domain(self, x: NDArray[np.float64]) -> NDArray[np.bool_]:
+        """Test which data values the transform is defined for."""
+
+    @abstractmethod
+    def ticks(
+        self,
+        dmin: float,
+        dmax: float,
+        coverage: TickCoverage,
+        params: ChooseTicksParams,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        """
+        Choose ``(ticks, subticks)`` in data space for the data-space range
+        ``[dmin, dmax]``.
+        """
+
+    def labels(self, ticks: NDArray[np.float64]) -> NDArray[np.str_]:
+        """Label ticks given in data space."""
+        return _label_numbers(ticks)
+
+
+class IdentityTransform(Transform):
+    """The default transform, leaving values unchanged."""
+
+    name = "identity"
+    domain = "all real numbers"
+
+    @override
+    def forward(self, x: NDArray[np.float64]) -> NDArray[np.float64]:
+        return x
+
+    @override
+    def inverse(self, y: NDArray[np.float64]) -> NDArray[np.float64]:
+        return y
+
+    @override
+    def in_domain(self, x: NDArray[np.float64]) -> NDArray[np.bool_]:
+        return np.ones(np.shape(x), dtype=bool)
+
+    @override
+    def ticks(
+        self,
+        dmin: float,
+        dmax: float,
+        coverage: TickCoverage,
+        params: ChooseTicksParams,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        return linear_ticks(dmin, dmax, coverage, params)
+
+
+class LogTransform(Transform):
+    """
+    Logarithmic transform. Ticks are placed at nice values in powers of
+    ``tick_base``, independent of the logarithm's base.
+    """
+
+    domain = "positive numbers"
+
+    def __init__(self, base: float = 10.0, tick_base: int = 10, name: str = "log10"):
+        self.base = base
+        self.tick_base = tick_base
+        self.name = name
+
+    @override
+    def forward(self, x: NDArray[np.float64]) -> NDArray[np.float64]:
+        if self.base == 10.0:
+            return np.log10(x)
+        if self.base == 2.0:
+            return np.log2(x)
+        return np.log(x) / np.log(self.base)
+
+    @override
+    def inverse(self, y: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.power(self.base, y)
+
+    @override
+    def in_domain(self, x: NDArray[np.float64]) -> NDArray[np.bool_]:
+        return x > 0
+
+    @override
+    def ticks(
+        self,
+        dmin: float,
+        dmax: float,
+        coverage: TickCoverage,
+        params: ChooseTicksParams,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        return log_ticks(dmin, dmax, coverage, params, tick_base=self.tick_base)
+
+    @override
+    def labels(self, ticks: NDArray[np.float64]) -> NDArray[np.str_]:
+        return _label_log_numbers(ticks, self.tick_base)
+
+
+class Log1pTransform(Transform):
+    """
+    The transform ``log(1 + x)``, useful for counts that include zero.
+    """
+
+    name = "log1p"
+    domain = "numbers greater than -1"
+
+    @override
+    def forward(self, x: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.log1p(x)
+
+    @override
+    def inverse(self, y: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.expm1(y)
+
+    @override
+    def in_domain(self, x: NDArray[np.float64]) -> NDArray[np.bool_]:
+        return x > -1
+
+    @override
+    def ticks(
+        self,
+        dmin: float,
+        dmax: float,
+        coverage: TickCoverage,
+        params: ChooseTicksParams,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        if dmax < 10.0:
+            return _linear_ticks_in_domain(dmin, dmax, coverage, params, self.in_domain)
+
+        ticks, subticks = log_ticks(max(dmin, 1.0), dmax, coverage, params)
+        # Zero is the natural lower tick when the data starts at or near it.
+        near_zero = dmin <= 0.0 or (coverage != TickCoverage.StrictSub and dmin < 0.5)
+        if near_zero and ticks[0] > 0.0:
+            ticks = np.concatenate([[0.0], ticks])
+        return ticks, subticks
+
+    @override
+    def labels(self, ticks: NDArray[np.float64]) -> NDArray[np.str_]:
+        return _label_log_numbers(ticks)
+
+
+class SqrtTransform(Transform):
+    """Square root transform, with ticks at evenly spaced data values."""
+
+    name = "sqrt"
+    domain = "non-negative numbers"
+
+    @override
+    def forward(self, x: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.sqrt(x)
+
+    @override
+    def inverse(self, y: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.square(y)
+
+    @override
+    def in_domain(self, x: NDArray[np.float64]) -> NDArray[np.bool_]:
+        return x >= 0
+
+    @override
+    def ticks(
+        self,
+        dmin: float,
+        dmax: float,
+        coverage: TickCoverage,
+        params: ChooseTicksParams,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        return _linear_ticks_in_domain(dmin, dmax, coverage, params, self.in_domain)
+
+
+_TRANSFORMS: dict[str, Transform] = {
+    "identity": IdentityTransform(),
+    "log10": LogTransform(10.0, 10, "log10"),
+    "log2": LogTransform(2.0, 2, "log2"),
+    "log": LogTransform(float(np.e), 10, "log"),
+    "ln": LogTransform(float(np.e), 10, "ln"),
+    "log1p": Log1pTransform(),
+    "sqrt": SqrtTransform(),
+}
+
+
+def resolve_transform(transform: Transform | str) -> Transform:
+    """
+    Look up a transform by name (one of "identity", "log10", "log2", "log",
+    "ln", "log1p", "sqrt"), or pass a `Transform` instance through.
+    """
+    if isinstance(transform, Transform):
+        return transform
+    try:
+        return _TRANSFORMS[transform]
+    except KeyError:
+        raise ValueError(
+            f"Unknown transform '{transform}'. Expected one of: "
+            + ", ".join(_TRANSFORMS)
+        ) from None
+
+
+TickSpec: TypeAlias = ArrayLike | Callable[[float, float], ArrayLike]
+TickLabeler: TypeAlias = Callable[[NDArray[np.float64]], Sequence[str]]
 
 
 class ScaleContinuous(Scale, ABC):
+    """
+    Base class for scales mapping numbers onto lengths, colors, or sizes.
+
+    Values first pass through the scale's `Transform` (the identity by
+    default). The scale's ``min``, ``max``, and tick positions are all kept in
+    transformed space, while ticks are chosen and labeled in data space.
+    """
+
     _unit: str
     min: np.float64 | None
     max: np.float64 | None
+    transform: Transform
+    tick_spec: TickSpec | None
+    labeler: TickLabeler | None
     tick_coverage: TickCoverage | ConfigKey
     choose_ticks_params: ChooseTicksParams | ConfigKey
     _ticks: NDArray[np.float64] | None
@@ -858,12 +1422,19 @@ class ScaleContinuous(Scale, ABC):
         ),
         min: float | None = None,
         max: float | None = None,
+        *,
+        transform: Transform | str = "identity",
+        ticks: TickSpec | None = None,
+        labeler: TickLabeler | None = None,
     ):
         # TODO: and also have a `fixed` argument like discrete scales.
 
         self._unit = unit
-        self.min = np.float64(min) if min is not None else None
-        self.max = np.float64(max) if max is not None else None
+        self.transform = resolve_transform(transform)
+        self.min = self._transform_scalar(min) if min is not None else None
+        self.max = self._transform_scalar(max) if max is not None else None
+        self.tick_spec = ticks
+        self.labeler = labeler
         self.tick_coverage = tick_coverage
         self.choose_ticks_params = choose_tick_params
         self._ticks = None
@@ -879,6 +1450,37 @@ class ScaleContinuous(Scale, ABC):
                 f"Cannot use continuous scale for unit '{self.unit}' with non-numerical value: {value}"
             )
 
+    def _as_array(self, values: UnscaledValues) -> NDArray[np.float64]:
+        vals = values.values
+        if isinstance(vals, np.ndarray):
+            try:
+                return vals.astype(np.float64)
+            except ValueError:
+                raise ValueError(
+                    f"Cannot use continuous scale for unit '{self.unit}' with non-numerical values"
+                )
+        return np.fromiter(
+            (self._cast_value(value) for value in vals), dtype=np.float64
+        )
+
+    def _check_domain(self, vals: NDArray[np.float64]) -> None:
+        bad = ~(self.transform.in_domain(vals) | np.isnan(vals))
+        if np.any(bad):
+            raise ValueError(
+                f"Scale for unit '{self.unit}' with transform '{self.transform.name}' "
+                f"is only defined for {self.transform.domain}, but got {vals[bad][0]}"
+            )
+
+    def _transform_values(self, vals: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Map data values into transformed space, checking they're in its domain."""
+        self._check_domain(vals)
+        return self.transform.forward(vals)
+
+    def _transform_scalar(self, value: float) -> np.float64:
+        return np.float64(
+            self._transform_values(np.array([value], dtype=np.float64))[0]
+        )
+
     @property
     @override
     def unit(self) -> str:
@@ -886,27 +1488,16 @@ class ScaleContinuous(Scale, ABC):
 
     @override
     def fit_values(self, values: UnscaledValues) -> None:
-        vals = values.values
-        if isinstance(vals, np.ndarray):
-            if vals.size == 0:
-                return
-            vmin = vals.min()
-            vmax = vals.max()
-            if self.min is None or vmin < self.min:
-                self.min = vmin
-            if self.max is None or vmax > self.max:
-                self.max = vmax
-        else:
-            for value in vals:
-                value = self._cast_value(value)
-                if self.min is None:
-                    self.min = value
-                elif value < self.min:
-                    self.min = value
-                if self.max is None:
-                    self.max = value
-                elif value > self.max:
-                    self.max = value
+        vals = self._as_array(values)
+        if vals.size == 0:
+            return
+        tvals = self._transform_values(vals)
+        vmin = tvals.min()
+        vmax = tvals.max()
+        if self.min is None or vmin < self.min:
+            self.min = vmin
+        if self.max is None or vmax > self.max:
+            self.max = vmax
 
     @override
     def finalize(self) -> None:
@@ -916,114 +1507,49 @@ class ScaleContinuous(Scale, ABC):
     @override
     def ticks(self) -> tuple[NDArray[np.str_], Lengths | Colors]:
         if self._ticks is None or self._tick_labels is None:
-            self._ticks, self._subticks = self._choose_ticks()
-            self._tick_labels = _label_numbers(self._ticks)
-            self._subtick_labels = _label_numbers(self._subticks)
+            ticks, subticks = self._choose_ticks()
+            self._tick_labels = self._label_ticks(ticks)
+            self._subtick_labels = self._label_ticks(subticks)
+            self._ticks = self.transform.forward(ticks)
+            self._subticks = self.transform.forward(subticks)
 
         return (self._tick_labels, CtxLengths(self._ticks, self.unit, CtxLenType.Pos))
 
+    def _label_ticks(self, ticks: NDArray[np.float64]) -> NDArray[np.str_]:
+        if len(ticks) == 0:
+            return np.array([], dtype=str)
+        if self.labeler is not None:
+            return np.asarray(self.labeler(ticks), dtype=str)
+        return self.transform.labels(ticks)
+
     def _choose_ticks(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """
-        Continuous scale tick optimization via a version of Wilkinson's ad-hoc scoring method.
+        Choose ``(ticks, subticks)`` in data space, either from the scale's
+        explicit tick specification or using the transform's tick finder.
         """
-
         if self.min is None or self.max is None:
             raise ValueError(
                 f"Cannot choose ticks for unit {self.unit} with no min or max"
             )
 
-        scale_span = self.max - self.min
+        dmin, dmax = sorted(
+            float(v) for v in self.transform.inverse(np.array([self.min, self.max]))
+        )
 
-        if scale_span == 0.0:
-            t0 = round(self.min - 1.0)
-            t1 = round(self.min + 1.0)
-            return np.array([t0, t1]), np.array([], dtype=float)
+        if self.tick_spec is not None:
+            spec = self.tick_spec
+            raw = spec(dmin, dmax) if callable(spec) else spec
+            ticks = np.sort(np.asarray(raw, dtype=np.float64).ravel())
+            self._check_domain(ticks)
+            return ticks, np.array([], dtype=np.float64)
 
         assert isinstance(self.choose_ticks_params, ChooseTicksParams)
-        params = self.choose_ticks_params
-        CONSTRAINT_PENALTY = 10000.0
-        high_score = -np.inf
-
-        oom_best = 0.0
-        k_best = 0
-        t0_best = 0.0
-        step_best = 0.0
-        substep_best = 0.0
-
-        # Consider all orders of magnitude where we can span the range with k_max ticks
-        oom = np.ceil(np.log10(scale_span))
-        while params.k_max * 10.0 ** (oom + 1) > scale_span:
-            # Consider numbers of ticks
-            for k in range(params.k_min, params.k_max + 1):
-                # Consider steps
-                for step in TICK_STEP_OPTIONS:
-                    step_size = step.tick_step * 10.0**oom
-                    if step_size == 0.0:
-                        continue
-
-                    t0 = step_size * np.floor(self.min / step_size)
-
-                    # Consider tick starting places
-                    while t0 <= self.max:
-                        score = step.niceness * params.niceness_weight
-
-                        tk = t0 + (k - 1) * step_size
-
-                        has_zero = t0 <= 0 and np.abs(t0 / step_size) < k
-                        if has_zero:
-                            score += params.simplicity_weight
-
-                        if 0 < k and k < 2 * params.k_ideal:
-                            score += (
-                                1 - abs(k - params.k_ideal) / params.k_ideal
-                            ) * params.granularity_weight
-
-                        coverage_jaccard = (min(self.max, tk) - max(self.min, t0)) / (
-                            max(self.max, tk) - min(self.min, t0)
-                        )
-                        score += coverage_jaccard * params.coverage_weight
-
-                        # strict-ish limits on coverage
-                        if self.tick_coverage == TickCoverage.StrictSub and (
-                            t0 < self.min or tk > self.max
-                        ):
-                            score -= CONSTRAINT_PENALTY
-                        elif self.tick_coverage == TickCoverage.StrictSuper and (
-                            t0 > self.min or tk < self.max
-                        ):
-                            score -= CONSTRAINT_PENALTY
-
-                        if score > high_score:
-                            high_score = score
-                            oom_best = oom
-                            k_best = k
-                            t0_best = t0
-                            step_best = step.tick_step
-                            substep_best = step.subtick_step
-
-                        t0 += step_size / 2
-
-            oom -= 1
-
-        if not np.isfinite(high_score):
-            t0 = round(self.min - 1.0)
-            t1 = round(self.min + 1.0)
-            return np.array([t0, t1]), np.array([], dtype=float)
-
-        # ticks
-        step_size = step_best * 10.0**oom_best
-        ticks = np.zeros(k_best, dtype=float)
-        for i in range(k_best):
-            ticks[i] = t0_best + i * step_size
-
-        # subticks
-        k_sub = int(round((k_best - 1) * step_best / substep_best))
-        step_size = substep_best * 10.0**oom_best
-        subticks = np.zeros(k_sub, dtype=float)
-        for i in range(k_sub):
-            subticks[i] = t0_best + i * step_size
-
-        return ticks, subticks
+        return self.transform.ticks(
+            dmin,
+            dmax,
+            cast(TickCoverage, self.tick_coverage),
+            self.choose_ticks_params,
+        )
 
 
 class ScaleContinuousColor(ScaleContinuous):
@@ -1041,12 +1567,25 @@ class ScaleContinuousColor(ScaleContinuous):
         min: float | None = None,
         max: float | None = None,
         mid: float | None = None,
+        *,
+        transform: Transform | str = "identity",
+        ticks: TickSpec | None = None,
+        labeler: TickLabeler | None = None,
     ):
         if not isinstance(colormap, ConfigKey):
             colormap = Colormap(colormap)
         self.colormap = colormap
-        self.mid = np.float64(mid) if mid is not None else None
-        super().__init__(unit, tick_coverage, choose_tick_params, min=min, max=max)
+        super().__init__(
+            unit,
+            tick_coverage,
+            choose_tick_params,
+            min=min,
+            max=max,
+            transform=transform,
+            ticks=ticks,
+            labeler=labeler,
+        )
+        self.mid = self._transform_scalar(mid) if mid is not None else None
         self._apply_mid()
 
     @override
@@ -1060,6 +1599,18 @@ class ScaleContinuousColor(ScaleContinuous):
             self.min = self.mid - dist
             self.max = self.mid + dist
 
+    def normalize(self, values: NDArray[np.float64]) -> NDArray[np.float64]:
+        """
+        Map values in the scale's (transformed) space onto colormap positions,
+        where ``min`` maps to 0 and ``max`` maps to 1.
+        """
+        if self.min is None or self.max is None:
+            raise ValueError("ScaleContinuousColor requires min and max values")
+        span = self.max - self.min
+        if span == 0:
+            return np.zeros_like(values, dtype=np.float64)
+        return (values - self.min) / span
+
     @override
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
         if self.min is None or self.max is None:
@@ -1069,24 +1620,8 @@ class ScaleContinuousColor(ScaleContinuous):
             f"Expected Colormap but got {type(self.colormap)}"
         )
 
-        span = self.max - self.min
-        vals = values.values
-        if isinstance(vals, np.ndarray):
-            vals_arr = vals.astype(np.float64)
-        else:
-            vals_arr = np.fromiter(
-                (self._cast_value(value) for value in vals),
-                dtype=np.float64,
-            )
-
-        if span != 0:
-            vals_arr = (vals_arr - self.min) / span
-        else:
-            vals_arr[:] = 0.0
-
-        scaled_values = self.colormap(vals_arr)
-
-        return Colors(scaled_values)
+        vals_arr = self._transform_values(self._as_array(values))
+        return Colors(self.colormap(self.normalize(vals_arr)))
 
 
 def colorcontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousColor:
@@ -1105,7 +1640,16 @@ def colorcontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousColor:
         max: Upper end of the scale. Defaults to the maximum of the data.
         mid: If given, the value placed at the middle of the colormap, with
             `min` and `max` expanded symmetrically about it. Useful for
-            diverging colormaps.
+            diverging colormaps. Given in data space, so with a log
+            transform it is the geometric midpoint.
+        transform: A `Transform`, or the name of one ("identity", "log10",
+            "log2", "log", "ln", "log1p", "sqrt"), applied to values before
+            they are mapped. Ticks are placed and labeled to suit it.
+        ticks: Explicit tick values in data space, or a function taking the
+            data-space ``(min, max)`` and returning them. Defaults to ticks
+            chosen by the transform.
+        labeler: Function mapping an array of data-space tick values to
+            label strings. Defaults to the transform's labeler.
 
     Returns:
         A `ScaleContinuousColor` to be passed to `plot`.
@@ -1123,21 +1667,26 @@ class ScaleContinuousLength(ScaleContinuous):
         ),
         min: float | None = None,
         max: float | None = None,
+        *,
+        transform: Transform | str = "identity",
+        ticks: TickSpec | None = None,
+        labeler: TickLabeler | None = None,
     ):
-        super().__init__(unit, tick_coverage, choose_tick_params, min=min, max=max)
+        super().__init__(
+            unit,
+            tick_coverage,
+            choose_tick_params,
+            min=min,
+            max=max,
+            transform=transform,
+            ticks=ticks,
+            labeler=labeler,
+        )
 
     @override
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
         assert values.unit == self.unit
-
-        vals = values.values
-        if isinstance(vals, np.ndarray):
-            scaled_values = vals.astype(np.float64)
-        else:
-            scaled_values = np.fromiter(
-                (self._cast_value(value) for value in vals), dtype=np.float64
-            )
-
+        scaled_values = self._transform_values(self._as_array(values))
         return CtxLengths(scaled_values, values.unit, values.typ)
 
 
@@ -1156,10 +1705,23 @@ class ScaleContinuousSize(ScaleContinuous):
         ),
         min: float | None = None,
         max: float | None = None,
+        *,
+        transform: Transform | str = "identity",
+        ticks: TickSpec | None = None,
+        labeler: TickLabeler | None = None,
     ):
         self.range_min = range_min
         self.range_max = range_max
-        super().__init__(unit, tick_coverage, choose_tick_params, min=min, max=max)
+        super().__init__(
+            unit,
+            tick_coverage,
+            choose_tick_params,
+            min=min,
+            max=max,
+            transform=transform,
+            ticks=ticks,
+            labeler=labeler,
+        )
 
     @override
     def scale_values(self, values: UnscaledValues) -> Lengths | Colors:
@@ -1168,14 +1730,7 @@ class ScaleContinuousSize(ScaleContinuous):
             # Fallback for no values
             return self.range_min
 
-        vals = values.values
-        if isinstance(vals, np.ndarray):
-            vals_arr = vals.astype(np.float64)
-        else:
-            vals_arr = np.fromiter(
-                (self._cast_value(value) for value in vals),
-                dtype=np.float64,
-            )
+        vals_arr = self._transform_values(self._as_array(values))
 
         span = self.max - self.min
         if span != 0:
@@ -1225,6 +1780,10 @@ def xcontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
     """
     Construct a continuous x scale, mapping numbers onto x positions.
 
+    A ``transform`` applies to each coordinate individually after geometries
+    are constructed, so statistics computed by a geometry (e.g. hexbin or
+    histogram bins) are computed on untransformed data.
+
     Args:
         tick_coverage: A `TickCoverage` controlling whether ticks may extend
             beyond the data range (default: taken from the config).
@@ -1232,6 +1791,14 @@ def xcontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
             (default: taken from the config).
         min: Lower end of the scale. Defaults to the minimum of the data.
         max: Upper end of the scale. Defaults to the maximum of the data.
+        transform: A `Transform`, or the name of one ("identity", "log10",
+            "log2", "log", "ln", "log1p", "sqrt"), applied to values before
+            they are mapped. Ticks are placed and labeled to suit it.
+        ticks: Explicit tick values in data space, or a function taking the
+            data-space ``(min, max)`` and returning them. Defaults to ticks
+            chosen by the transform.
+        labeler: Function mapping an array of data-space tick values to
+            label strings. Defaults to the transform's labeler.
 
     Returns:
         A `ScaleContinuousLength` to be passed to `plot`.
@@ -1243,6 +1810,10 @@ def ycontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
     """
     Construct a continuous y scale, mapping numbers onto y positions.
 
+    A ``transform`` applies to each coordinate individually after geometries
+    are constructed, so statistics computed by a geometry (e.g. hexbin or
+    histogram bins) are computed on untransformed data.
+
     Args:
         tick_coverage: A `TickCoverage` controlling whether ticks may extend
             beyond the data range (default: taken from the config).
@@ -1250,6 +1821,14 @@ def ycontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
             (default: taken from the config).
         min: Lower end of the scale. Defaults to the minimum of the data.
         max: Upper end of the scale. Defaults to the maximum of the data.
+        transform: A `Transform`, or the name of one ("identity", "log10",
+            "log2", "log", "ln", "log1p", "sqrt"), applied to values before
+            they are mapped. Ticks are placed and labeled to suit it.
+        ticks: Explicit tick values in data space, or a function taking the
+            data-space ``(min, max)`` and returning them. Defaults to ticks
+            chosen by the transform.
+        labeler: Function mapping an array of data-space tick values to
+            label strings. Defaults to the transform's labeler.
 
     Returns:
         A `ScaleContinuousLength` to be passed to `plot`.
@@ -1271,6 +1850,14 @@ def sizecontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousSize:
             (default: taken from the config).
         min: Lower end of the scale. Defaults to the minimum of the data.
         max: Upper end of the scale. Defaults to the maximum of the data.
+        transform: A `Transform`, or the name of one ("identity", "log10",
+            "log2", "log", "ln", "log1p", "sqrt"), applied to values before
+            they are mapped. Ticks are placed and labeled to suit it.
+        ticks: Explicit tick values in data space, or a function taking the
+            data-space ``(min, max)`` and returning them. Defaults to ticks
+            chosen by the transform.
+        labeler: Function mapping an array of data-space tick values to
+            label strings. Defaults to the transform's labeler.
 
     Returns:
         A `ScaleContinuousSize` to be passed to `plot`.

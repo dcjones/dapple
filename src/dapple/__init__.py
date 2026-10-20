@@ -30,6 +30,7 @@ from .plot import Plot, plot
 from .scales import (
     Scale,
     TickCoverage,
+    Transform,
     colorcontinuous,
     colordiscrete,
     shapediscrete,
@@ -121,6 +122,7 @@ __all__ = [
     # scales
     "Scale",
     "TickCoverage",
+    "Transform",
     "colorcontinuous",
     "colordiscrete",
     "shapediscrete",
