@@ -6,6 +6,7 @@ import shapely.geometry as geom
 from dapple.geometry.rasterized_polygons import (
     rasterized_polygons,
     RasterizedPolygonsElement,
+    _triangulate_polygon_earcut,
 )
 from dapple.colors import color
 from dapple.config import ConfigKey
@@ -246,6 +247,20 @@ class TestRasterizedPolygonsResolve:
 
         resolved = element.resolve(ctx)
         assert resolved.tag == "image"
+
+    def test_polygon_hole_excluded_from_triangulation(self):
+        shell = [(0, 0), (50, 0), (50, 50), (0, 50), (0, 0)]
+        hole = [(10, 10), (40, 10), (40, 40), (10, 40), (10, 10)]
+        p = geom.Polygon(shell, holes=[hole])
+        coords = np.asarray(p.exterior.coords, dtype=np.float64)[:-1, :]
+
+        tris = _triangulate_polygon_earcut(p, coords)
+
+        a, b, c = tris[:, 0, :], tris[:, 1, :], tris[:, 2, :]
+        ab, ac = b - a, c - a
+        areas = 0.5 * np.abs(ab[:, 0] * ac[:, 1] - ab[:, 1] * ac[:, 0])
+        assert areas.sum() == pytest.approx(p.area)
+        assert p.area == pytest.approx(50 * 50 - 30 * 30)
 
     def test_multipolygon_with_colors_per_input(self):
         # Test that colors can match the number of input geometries (including MultiPolygons)

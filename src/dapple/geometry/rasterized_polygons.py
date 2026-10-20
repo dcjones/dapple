@@ -361,7 +361,7 @@ def _triangulate_polygon_earcut(polygon, coords: np.ndarray) -> np.ndarray:
 
     # Handle holes if present
     # rings should contain cumulative end indices for each ring
-    rings = np.array([len(coords)])  # End index of exterior ring
+    rings = [len(coords)]  # End index of exterior ring
 
     if len(polygon.interiors) > 0:
         # Add hole coordinates
@@ -378,7 +378,7 @@ def _triangulate_polygon_earcut(polygon, coords: np.ndarray) -> np.ndarray:
             vertices = np.vstack([vertices, all_hole_coords])
 
     # Triangulate using earcut
-    indices = earcut.triangulate_float32(vertices, rings)
+    indices = earcut.triangulate_float64(vertices, np.array(rings, dtype=np.uint32))
 
     if len(indices) == 0:
         return np.zeros((0, 3, 2), dtype=np.float64)
