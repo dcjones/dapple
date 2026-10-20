@@ -830,7 +830,21 @@ class TickCoverage(Enum):
         elif value == "strictsuper" or value == "super":
             return cls.StrictSuper
         else:
-            raise ValueError(f"Invalid tick coverage: {value}")
+            raise ValueError(
+                f"Invalid tick coverage: {value}. Expected one of "
+                '"flexible", "sub", "strictsub", "super", or "strictsuper".'
+            )
+
+    @classmethod
+    def parse(cls, value: "TickCoverage | str") -> "TickCoverage":
+        """Accept either a `TickCoverage` or its string shorthand."""
+        if isinstance(value, TickCoverage):
+            return value
+        if isinstance(value, str):
+            return cls.from_str(value)
+        raise TypeError(
+            f"Tick coverage must be a TickCoverage or string, not {type(value).__name__}"
+        )
 
 
 _TICK_CONSTRAINT_PENALTY = 10000.0
@@ -1406,7 +1420,7 @@ class ScaleContinuous(Scale, ABC):
     transform: Transform
     tick_spec: TickSpec | None
     labeler: TickLabeler | None
-    tick_coverage: TickCoverage | ConfigKey
+    tick_coverage: TickCoverage | str | ConfigKey
     choose_ticks_params: ChooseTicksParams | ConfigKey
     _ticks: NDArray[np.float64] | None
     _subticks: NDArray[np.float64] | None
@@ -1416,7 +1430,7 @@ class ScaleContinuous(Scale, ABC):
     def __init__(
         self,
         unit: str,
-        tick_coverage: TickCoverage | ConfigKey = ConfigKey("tick_coverage"),  # type: ignore[assignment]
+        tick_coverage: TickCoverage | str | ConfigKey = ConfigKey("tick_coverage"),  # type: ignore[assignment]
         choose_tick_params: ChooseTicksParams | ConfigKey = ConfigKey(  # type: ignore[assignment]
             "tick_params"
         ),
@@ -1435,7 +1449,13 @@ class ScaleContinuous(Scale, ABC):
         self.max = self._transform_scalar(max) if max is not None else None
         self.tick_spec = ticks
         self.labeler = labeler
-        self.tick_coverage = tick_coverage
+        # Strings given directly are parsed now so mistakes surface early;
+        # those from the config are parsed once the ConfigKey is replaced.
+        self.tick_coverage = (
+            TickCoverage.parse(tick_coverage)
+            if isinstance(tick_coverage, str)
+            else tick_coverage
+        )
         self.choose_ticks_params = choose_tick_params
         self._ticks = None
         self._subticks = None
@@ -1544,10 +1564,12 @@ class ScaleContinuous(Scale, ABC):
             return ticks, np.array([], dtype=np.float64)
 
         assert isinstance(self.choose_ticks_params, ChooseTicksParams)
+        assert not isinstance(self.tick_coverage, ConfigKey)
+        self.tick_coverage = TickCoverage.parse(self.tick_coverage)
         return self.transform.ticks(
             dmin,
             dmax,
-            cast(TickCoverage, self.tick_coverage),
+            self.tick_coverage,
             self.choose_ticks_params,
         )
 
@@ -1560,7 +1582,7 @@ class ScaleContinuousColor(ScaleContinuous):
         self,
         unit: str,
         colormap: ColormapLike | ConfigKey = ConfigKey("continuous_cmap"),  # type: ignore[assignment]
-        tick_coverage: TickCoverage | ConfigKey = ConfigKey("tick_coverage"),  # type: ignore[assignment]
+        tick_coverage: TickCoverage | str | ConfigKey = ConfigKey("tick_coverage"),  # type: ignore[assignment]
         choose_tick_params: ChooseTicksParams | ConfigKey = ConfigKey(  # type: ignore[assignment]
             "tick_params"
         ),
@@ -1632,8 +1654,9 @@ def colorcontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousColor:
     Args:
         colormap: A colormap or sequence of colors to interpolate
             (default: taken from the config's "continuous_cmap").
-        tick_coverage: A `TickCoverage` controlling whether ticks may extend
-            beyond the data range (default: taken from the config).
+        tick_coverage: A `TickCoverage`, or one of the strings "flexible",
+            "sub", or "super", controlling whether ticks may extend beyond
+            the data range (default: taken from the config).
         choose_tick_params: `ChooseTicksParams` tuning tick selection
             (default: taken from the config).
         min: Lower end of the scale. Defaults to the minimum of the data.
@@ -1661,7 +1684,7 @@ class ScaleContinuousLength(ScaleContinuous):
     def __init__(
         self,
         unit: str,
-        tick_coverage: TickCoverage | ConfigKey = ConfigKey("tick_coverage"),  # type: ignore[assignment]
+        tick_coverage: TickCoverage | str | ConfigKey = ConfigKey("tick_coverage"),  # type: ignore[assignment]
         choose_tick_params: ChooseTicksParams | ConfigKey = ConfigKey(  # type: ignore[assignment]
             "tick_params"
         ),
@@ -1699,7 +1722,7 @@ class ScaleContinuousSize(ScaleContinuous):
         range_min: Lengths = mm(0.2),
         range_max: Lengths = mm(1.0),
         unit: str = "size",
-        tick_coverage: TickCoverage | ConfigKey = ConfigKey("tick_coverage"),  # type: ignore[assignment]
+        tick_coverage: TickCoverage | str | ConfigKey = ConfigKey("tick_coverage"),  # type: ignore[assignment]
         choose_tick_params: ChooseTicksParams | ConfigKey = ConfigKey(  # type: ignore[assignment]
             "tick_params"
         ),
@@ -1785,8 +1808,9 @@ def xcontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
     histogram bins) are computed on untransformed data.
 
     Args:
-        tick_coverage: A `TickCoverage` controlling whether ticks may extend
-            beyond the data range (default: taken from the config).
+        tick_coverage: A `TickCoverage`, or one of the strings "flexible",
+            "sub", or "super", controlling whether ticks may extend beyond
+            the data range (default: taken from the config).
         choose_tick_params: `ChooseTicksParams` tuning tick selection
             (default: taken from the config).
         min: Lower end of the scale. Defaults to the minimum of the data.
@@ -1815,8 +1839,9 @@ def ycontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousLength:
     histogram bins) are computed on untransformed data.
 
     Args:
-        tick_coverage: A `TickCoverage` controlling whether ticks may extend
-            beyond the data range (default: taken from the config).
+        tick_coverage: A `TickCoverage`, or one of the strings "flexible",
+            "sub", or "super", controlling whether ticks may extend beyond
+            the data range (default: taken from the config).
         choose_tick_params: `ChooseTicksParams` tuning tick selection
             (default: taken from the config).
         min: Lower end of the scale. Defaults to the minimum of the data.
@@ -1844,8 +1869,9 @@ def sizecontinuous(*args: Any, **kwargs: Any) -> ScaleContinuousSize:
     Args:
         range_min: Length the smallest value maps to (default: `mm(0.2)`).
         range_max: Length the largest value maps to (default: `mm(1.0)`).
-        tick_coverage: A `TickCoverage` controlling whether ticks may extend
-            beyond the data range (default: taken from the config).
+        tick_coverage: A `TickCoverage`, or one of the strings "flexible",
+            "sub", or "super", controlling whether ticks may extend beyond
+            the data range (default: taken from the config).
         choose_tick_params: `ChooseTicksParams` tuning tick selection
             (default: taken from the config).
         min: Lower end of the scale. Defaults to the minimum of the data.

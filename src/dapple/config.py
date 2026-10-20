@@ -106,7 +106,7 @@ class Config:
     continuous_cmap: Colormap = field(
         default_factory=lambda: Colormap("colorcet:cet_l20")
     )
-    tick_coverage: str = "sub"
+    tick_coverage: str = "flexible"
     tick_params: ChooseTicksParams = field(
         default_factory=lambda: ChooseTicksParams(
             k_min=2,

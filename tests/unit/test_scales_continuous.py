@@ -72,3 +72,52 @@ def test_scale_continuous_size_min_max():
     
     scale.fit_values(UnscaledValues("size", [150]))
     assert scale.max == 150
+
+
+def test_tick_coverage_parses_strings():
+    from dapple.scales import TickCoverage
+
+    assert xcontinuous("sub").tick_coverage == TickCoverage.StrictSub
+    assert xcontinuous("Super").tick_coverage == TickCoverage.StrictSuper
+    assert xcontinuous("flexible").tick_coverage == TickCoverage.Flexible
+    assert xcontinuous(TickCoverage.StrictSub).tick_coverage == TickCoverage.StrictSub
+
+
+def test_tick_coverage_rejects_invalid_string():
+    with pytest.raises(ValueError, match="Invalid tick coverage"):
+        xcontinuous("everything")
+
+
+def test_tick_coverage_from_config_is_parsed():
+    import numpy as np
+    from dataclasses import replace
+
+    from dapple.config import Config
+    from dapple.scales import TickCoverage
+
+    data = UnscaledValues("x", np.array([0.3, 9.7]))
+    for coverage, expected in [
+        ("sub", TickCoverage.StrictSub),
+        ("super", TickCoverage.StrictSuper),
+    ]:
+        config = replace(Config(), tick_coverage=coverage)
+        scale = xcontinuous()
+        config.replace_keys(scale)
+        scale.fit_values(data)
+        _, ticks = scale.ticks()
+        assert scale.tick_coverage == expected
+        if expected == TickCoverage.StrictSub:
+            assert ticks.values[0] >= 0.3 and ticks.values[-1] <= 9.7
+        else:
+            assert ticks.values[0] <= 0.3 and ticks.values[-1] >= 9.7
+
+
+def test_default_tick_coverage_is_flexible():
+    from dapple.config import Config
+    from dapple.scales import TickCoverage
+
+    scale = xcontinuous()
+    Config().replace_keys(scale)
+    scale.fit_values(UnscaledValues("x", [0.3, 9.7]))
+    scale.ticks()
+    assert scale.tick_coverage == TickCoverage.Flexible
